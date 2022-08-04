@@ -1,54 +1,3 @@
-'''
-Updates as of 07/05:
-
-optimal aperture functions:
-    -Functions have been renamed and a new one has been added. Now, "aperture_finder" is a function that takes in all of the   
-     parameters of opt_ap_crowded. This function calls opt_ap_single if the length of the coord list is = 1 and calls 
-     opt_ap_crowded if it is > 1. This function outputs a list containing the optimal aperture(s).
-    -Step size is now an input of both optimal aperture functions.
-    -Addded "tolerance" parameter to opt_ap_crowded (default value = 0.01) that determines the fractional change in apertures 
-    between iterations at which the algorithm stops iterating and the apertures are outputted.
-    -Removed distance function defined within opt_ap_crowded and am now using the distance.euclidean function of scipy.spatial.
-    -Added a "failsafe" so that if the gradient condition is not met, the optima aperture is returned as the point where the 
-    increase in flux from the last point is the smallest.
-    -Added 2 parameters to crowded function: fluxes and min_flux. These are primarily for Sam and Alex. If any source's 
-    flux is below the min_flux, it is assigned the minimum aperture.
-    -Each src is now assigned ap_inner to start with instead of min_sep.
-
-get_flux and get_flux_raw:
-    -Pixels belonging to another source's aperture are now masked out of the annulus for background subtraction by 
-    multiplying data by np.logical_not(mask).
-    -Now first checks if mask is an array. If it is, previous step is carried out. If it's not (meaning it's None), this step is 
-    not carried out.
-
-regrid_masks:
-    -Renamed old "regrid_mask" function to "regrid" and moved it to be inside of the regrid_masks function. Added comments.
-    -Function now takes in parameters for a SINGLE source and outputs regridded masks for that source only (instead of doing all 
-    of the sources in a region at once). The user now calls this function for each source separately.
-    -We now round the pixel values of the regridded masks before converting to int type and then Bool type. This means that in 
-    the regridded masks, any pixels >=0.5 will NOT be masked out, whereas any pixels >0.5 WILL be masked out. This extra 
-    rounding step makes the individual regridded masks look much more feasible.
-    -Renamed the "H70_img" and "H70_mask" inputs to "master_img" and "master_mask".
-    
-Other added or removed functions:
-    -Included plot_aps and plot_mask functions
-    -Removed "master" function that runs all of the others
-    -Added cutout function that cuts an image down to a specified size to speed up processes.
-        -Fixed this so that original image is not changed (before, original image itself was getting cut).
-        -Adapted this to fit in SEDFluxer
-        -Size is now given in arcseconds and converted to pixels.
-        
- Plotting:
-     -Fixed colorbar ticks
-              
-Notes:
-    -Added documentation to remaining functions.
-    -After lots of testing, none of these changes seem to have affected the results of region G18.67 EXCEPT
-        -Masking out the pixels belonging to another source's aperture in the annulus (this affects the background and thus 
-        error bars)
-        -Rounding the regridded mask pixel values before converting to integer type and then boolean type.
-
-'''
 #packages needed for the sedcreator to work
 import numpy as np
 import matplotlib.pyplot as plt
@@ -58,7 +7,6 @@ import pkg_resources
 from tqdm import tqdm
 from scipy.optimize import curve_fit, minimize, Bounds
 from scipy.stats import gstd,gmean
-from scipy.spatial import distance
 
 from matplotlib import rcParams
 rcParams['font.sans-serif'] = ['Times']
@@ -69,7 +17,6 @@ rcParams['font.family'] = 'serif'
 rcParams['font.size'] = 12
 rcParams['mathtext.fontset'] = 'cm'
 
-import astropy
 from astropy.io import fits as pyfits
 from astropy.io import ascii
 import astropy.units as u
@@ -82,12 +29,6 @@ from astropy.constants import c, m_e, m_n, m_p
 
 from photutils import aperture_photometry
 from photutils import CircularAperture, CircularAnnulus
-from reproject import reproject_interp, reproject_exact
-
-from astropy.nddata.utils import Cutout2D
-from reproject import reproject_interp, reproject_exact
-from matplotlib.ticker import FuncFormatter
-
 
 #constants for SedFitter
 pc2cm = u.pc.to(u.cm)
@@ -303,7 +244,7 @@ class FluxerContainer():
             plt.ylabel('Dec (J2000)')
         
         if colorbar:
-            cbar_ticks = np.logspace(np.log10(norm.vmin),np.log10(norm.vmax),num=5)
+            cbar_ticks = np.around(np.linspace(norm.vmin,norm.vmax,num=5))
             if 'BUNIT' in header:
                 cbar = plt.colorbar(label='PixelUnits: {0}'.format(header['BUNIT']), pad=0.01)
             elif 'FUNITS' in header:
@@ -314,15 +255,14 @@ class FluxerContainer():
                 cbar = plt.colorbar(label='PixelUnits: check header', pad=0.01)
             cbar.set_ticks(cbar_ticks)
             cbar.set_ticklabels(cbar_ticks)
-            cbar.ax.set_yticklabels(["{:.2f}".format(i) for i in cbar_ticks])
         if title is not None:
             plt.title(title)
             
         if plot_mask:
             mask_to_plot = np.array(mask,dtype=int)
-            mask_cmap = plt.cm.Greys_r
-            mask_cmap.set_bad(color='red',alpha=0.3)
-            plt.imshow(mask,vmin=0,vmax=1,cmap=mask_cmap,alpha=0.5)
+            mask_cmap = plt.cm.Reds_r
+            mask_cmap.set_bad(color='white',alpha=0)
+            plt.imshow(mask,vmin=0,vmax=1,cmap=mask_cmap,alpha=0.1)
             
         if figname is not None:
             plt.savefig(figname,dpi=300,bbox_inches='tight')
@@ -346,63 +286,18 @@ class SedFluxer:
         try:
             data = self.image.data
             header = self.image.header
-            #this is to deal with SOFIA data that has 3 dimensions in shape
-            if len(np.shape(self.image.data))==3:
-                data = self.image.data[0]
-            #this is to deal with ALMA and VLA data that has 4 dimensions in shape
-            if len(np.shape(self.image.data))==4:
+            #this is to deal with ALMA and VLA data that has multiple extensions
+            if len(np.shape(self.image.data))!=2:
                 data = self.image.data[0][0]
         except:
             data = self.image[0][0].data
             header = self.image[0][0].header
-            #this is to deal with SOFIA data that has 3 dimensions in shape
-            if len(np.shape(self.image[0][0].data))==3:
-                data = self.image[0][0].data[0]
-            #this is to deal with ALMA and VLA data that has 4 dimensions in shape
-            if len(np.shape(self.image[0][0].data))==4:
+            #this is to deal with ALMA and VLA data that has multiple extensions
+            if len(np.shape(self.image[0][0].data))!=2:
                 data = self.image[0][0].data[0][0]
         return(data,header)
         
-    def cutout(self, central_coords, size_arcsec):
-        '''
-        based on: https://docs.astropy.org/en/stable/nddata/utils.html
         
-        Cuts an image to a specified size and changes the header accordingly.
-        Parameters
-        ----------
-        central_coords: `astropy.coordinates.SkyCoord`
-            Central coordinates of the PRIMARY source in the region. This must be a SkyCoord statement.
-        size_arcsec: float
-            Size (in arcseconds) of the cut out image.
-            
-        Returns 
-        ---------
-        hdu: FITS HDU
-            HDU containing the cutout image and adapted header.
-        '''
-        # Load the image and the WCS
-        data, header = self.data
-        wcs = WCS(header)
-
-        if 'CD1_1' in header:
-            pixel_scale = np.absolute(header['CD1_1'])*3600.0
-        elif 'CDELT1' in header:
-            pixel_scale = np.absolute(header['CDELT1'])*3600.0        
-            
-        size_pixels = size_arcsec/pixel_scale
-
-        # Make the cutout, including the WCS
-        cutout = Cutout2D(data, position=central_coords, size=size_pixels, wcs=wcs)
-        
-        # Put the cutout image in the FITS HDU   
-        hdu = pyfits.PrimaryHDU(cutout.data)
-        hdu.header = header
-
-        # Update the FITS header with the cutout WCS
-        hdu.header.update(cutout.wcs.to_header())
-
-        return hdu         
-    
     def get_flux(self,central_coords,aper_rad,inner_annu,outer_annu,mask=None):
         '''
         Performs circular aperture photometry for a given image, specifying the central coordinates and
@@ -472,23 +367,17 @@ class SedFluxer:
         error = 0.1*data
         bkg_median = []
         for annu_mask in annulus_masks:
-            if type(mask) is np.ndarray:
-                annulus_data = annu_mask.multiply(data*np.logical_not(mask))
-#                 plt.imshow(annulus_data, origin="lower")
-#                 plt.show()
-            else:
-                annulus_data = annu_mask.multiply(data)
+            annulus_data = annu_mask.multiply(data)
             annulus_data_1d = annulus_data[annu_mask.data > 0]
             _, median_sigclip, _ = sigma_clipped_stats(annulus_data_1d)
             bkg_median.append(median_sigclip)
         bkg_median = np.array(bkg_median)
         ap_phot = aperture_photometry(data, aperture,error=error,mask=mask) #circular aperture sum
         ap_phot['annulus_median'] = bkg_median
-        #print(ap_phot.keys())
-        ap_phot['aper_bkg'] = bkg_median * aperture.area_overlap(data, mask=mask, method='exact', subpixels=5) #consider a median value for the background subtraction
+        ap_phot['aper_bkg'] = bkg_median * aperture.area #consider a median value for the background subtraction
         ap_phot['aper_sum_bkgsub'] = ap_phot['aperture_sum'] - ap_phot['aper_bkg'] #subtracting the background
-
         #--> END of the aperture photometry block
+
         #This block is to deal with WISE DN units
         #The first if else is to deal with both WISE images the one downloaded from Skyview and from WISE archive
         if ('TELESCOP' in header) & ('BAND' in header):
@@ -530,11 +419,6 @@ class SedFluxer:
                             unit_factor_Jy = 1.0 #leave it in Jy
                         flux_bkgsub = unit_factor_Jy*ap_phot['aper_sum_bkgsub'].data[0] #Jy
                         flux = unit_factor_Jy*ap_phot['aperture_sum'].data[0] #Jy
-                    elif 'Jy'==header['BUNIT']:
-                        flux_bkgsub = ap_phot['aper_sum_bkgsub'].data[0] #Jy
-                        flux = ap_phot['aperture_sum'].data[0] #Jy
-                    else:
-                        raise Exception('BUNIT (',header['BUNIT'],') found in the header but units not yet supported, use get_raw_flux() function and perform own units transformation')
                 elif 'FUNITS' in header:
                     if 'Jy/pix' in header['FUNITS']:#This is mainly for SOFIA data that does not have BUNIT, it is FUNIT
                         if 'mJy/pix' in header['FUNITS']:
@@ -618,12 +502,9 @@ class SedFluxer:
                         unit_factor_Jy = 1.0 #leave it in Jy
                     flux_bkgsub = unit_factor_Jy*ap_phot['aper_sum_bkgsub'].data[0] #Jy
                     flux = unit_factor_Jy*ap_phot['aperture_sum'].data[0] #Jy
-                elif 'Jy'==header['BUNIT']:
-                    flux_bkgsub = ap_phot['aper_sum_bkgsub'].data[0] #Jy
-                    flux = ap_phot['aperture_sum'].data[0] #Jy
                 else:
                     raise Exception('BUNIT (',header['BUNIT'],') found in the header but units not yet supported, use get_raw_flux() function and perform own units transformation')
-
+            #TODO: add mJy/pix here!
             elif 'FUNITS' in header:
                 if 'Jy/pix' in header['FUNITS']:#This is mainly for SOFIA data that does not have BUNIT, it is FUNIT
                     if 'mJy/pix' in header['FUNITS']:
@@ -632,9 +513,6 @@ class SedFluxer:
                         unit_factor_Jy = 1.0 #leave it in Jy
                     flux_bkgsub = unit_factor_Jy*ap_phot['aper_sum_bkgsub'].data[0] #Jy
                     flux = unit_factor_Jy*ap_phot['aperture_sum'].data[0] #Jy
-                elif 'Jy'==header['FUNITS']:#This is mainly for SOFIA data that does not have BUNIT, it is FUNIT
-                    flux_bkgsub = ap_phot['aper_sum_bkgsub'].data[0] #Jy
-                    flux = ap_phot['aperture_sum'].data[0] #Jy
                 elif 'Jy/sq-arc' in header['FUNITS']:#This is mainly for SOFIA data
                     if 'mJy/sq-arc' in header['FUNITS']:
                         unit_factor_Jy = 0.001 #from mJy to Jy
@@ -652,7 +530,6 @@ class SedFluxer:
                  central_coords=central_coords,aper_rad=aper_rad,inner_annu=inner_annu,outer_annu=outer_annu,
                  x_source=x_source,y_source=y_source,aper_rad_pixel=aper_rad_pixel,wcs_header=wcs_header,
                  aperture=aperture,annulus_aperture=annulus_aperture,mask=mask,flux_method='get_flux')
-
 
     def get_raw_flux(self,central_coords,aper_rad,inner_annu,outer_annu,mask=None):
         '''
@@ -719,17 +596,14 @@ class SedFluxer:
         error = 0.1*data
         bkg_median = []
         for annu_mask in annulus_masks:
-            if type(mask) is np.ndarray:
-                annulus_data = annu_mask.multiply(data*np.logical_not(mask))
-            else:
-                annulus_data = annu_mask.multiply(data)
+            annulus_data = annu_mask.multiply(data)
             annulus_data_1d = annulus_data[annu_mask.data > 0]
             _, median_sigclip, _ = sigma_clipped_stats(annulus_data_1d)
             bkg_median.append(median_sigclip)
         bkg_median = np.array(bkg_median)
         ap_phot = aperture_photometry(data, aperture,error=error,mask=mask) #circular aperture sum
         ap_phot['annulus_median'] = bkg_median
-        ap_phot['aper_bkg'] = bkg_median * aperture.area_overlap(data, mask=mask, method='exact', subpixels=5) #consider a median value for the background subtraction
+        ap_phot['aper_bkg'] = bkg_median * aperture.area #consider a median value for the background subtraction
         ap_phot['aper_sum_bkgsub'] = ap_phot['aperture_sum'] - ap_phot['aper_bkg'] #subtracting the background
         #--> END of the aperture photometry block
         
@@ -742,81 +616,7 @@ class SedFluxer:
                  x_source=x_source,y_source=y_source,aper_rad_pixel=aper_rad_pixel,wcs_header=wcs_header,
                  aperture=aperture,annulus_aperture=annulus_aperture,mask=mask,flux_method='get_raw_flux')
     
-    
-    def aperture_finder(self, coords, boundary_arcsec=60.,ap_inner=5.0,ap_outer=60.0,step_size=0.25,aper_increase=1.3,
-                                        threshold=1.1,tolerance=0.01,profile_plot=False, plot_map=False, exclusion_rad=5., max_iter=10, fluxes=None, min_flux=None):     
-
-        '''
-        Finds the optimal aperture(s) of the given source(s) in a region. If a single source, coordinate
-        is provided, function calls opt_ap_single. If a list of coordinates is given, function calls 
-        opt_ap_crowded to find the optimal aperture of each source and corresponding mask.
-
-        Parameters
-        ----------
-        image: fits file
-            Image used to find the "optimal" aperture radii of each source. Should be either a Herschel 70
-            micron image or a SOFIA 37 micron image for best results.
-            
-        coords: `astropy.coordinates.SkyCoord` OR a list of such statements
-            Central coordinates where the aperture(s) will be centred on the data image.
-            This must be a SkyCoord statement or a list of SkyCoord statements.
-            
-        boundary_arcsec: float
-            
-        ap_inner: float
-                Inner aperture radius given in arcsec. The script will take care to convert it into pixels.
-                It the starting point to find the optimal aperture. Default is 5.0 arcsec.
-                
-        ap_outer: float
-                Outer aperture radius given in arcsec. The script will take care to convert it into pixels.
-                It the ending point to find the optimal aperture. Default is 60.0 arcsec.
-                
-        step_size: float
-                Step size for sampling aperture radii. Default is 0.25arcsec.
-                
-        aper_increase: float
-            It is the increase in aperture to meet the condition
-            aper_increase*optimal radius <= flux at opt.rad. * threshold.
-            Default is 1.30, i.e. 30% increase in aperture.
-            
-        threshold: float
-            It is the condition to be met such as, at the optimal aperture radius,
-            1.3*optimal radius <= flux at opt.rad. * threshold. Default is 1.08, i.e. 10% increase in flux.
-            
-        tolerance: float
-            The fractional change in aperture radii between iterations at which the algorithm will stop 
-            and output the apertures. Default is 0.01 (i.e., 1% change).
-            
-        profile_plot: bool
-            Plots the flux profile versus the aperture radius size. Default is False.
-            
-        plot_map: bool
-            Plots the map showing which source (if any) each pixel is assigned to. Default is False.
-            
-        Returns
-        -------
-        EITHER (if a single coordinate is provided):
-        aperture : float
-            Optimal aperture radius defined by this method given in arcsec
-            
-        OR (if a list of coordinates is provided):
-        aperture_list: list of floats
-            Optimal aperture radii defined by this method given in arcsec
-            
-        mask_list: list of arrays
-            List of masks for each source that the user provided coordinates for. Masks are Boolean types.
-
-        '''
-        if type(coords) is astropy.coordinates.sky_coordinate.SkyCoord:
-            aperture = self.opt_ap_single(coords,ap_inner=ap_inner,ap_outer=ap_outer,step_size=step_size,aper_increase=aper_increase,threshold=threshold,profile_plot=profile_plot, mask=None)
-            return aperture
-        elif type(coords) is list and len(coords) > 1:
-            aperture_list, mask_list = self.opt_ap_crowded(coords, boundary_arcsec=boundary_arcsec, ap_inner=ap_inner,ap_outer=ap_outer,step_size=step_size,aper_increase=aper_increase,
-                                        threshold=threshold,tolerance=tolerance,profile_plot=profile_plot, plot_map=plot_map, exclusion_rad=exclusion_rad, max_iter=max_iter, fluxes=fluxes, min_flux=min_flux) 
-            return aperture_list, mask_list
-    
-    
-    def opt_ap_single(self,central_coords,ap_inner=5.0,ap_outer=60.0,step_size=0.25,aper_increase=1.3,threshold=1.1,profile_plot=False, mask=None):
+    def get_optimal_aperture(self,central_coords,ap_inner=5.0,ap_outer=60.0,step_size=0.25,aper_increase=1.3,threshold=1.1,profile_plot=False):
         '''
         Finds the optimal aperture based on the following method:
         EXPLAIN METHOD.
@@ -827,29 +627,34 @@ class SedFluxer:
         Parameters
         ----------
         image: fits file
-            Image for which we would like to calculate the "optimal" aperture radius  
+            Image for which we would like to calculate the "optimal" aperture radius
+            
         central_coords: `astropy.coordinates.SkyCoord`
-            Central coordinates where the apertures will be centred on the data image.
-            This must be a SkyCoord statement.       
+                    Central coordinates where the apertures will be centred on the data image.
+                    This must be a SkyCoord statement.
+                    
         ap_inner: float
-            Inner aperture radius given in arcsec. The script will take care to convert it into pixels.
-            It the starting point to find the optimal aperture. Default is 5.0 arcsec.
+                Inner aperture radius given in arcsec. The script will take care to convert it into pixels.
+                It the starting point to find the optimal aperture. Default is 5.0 arcsec.
+                
         ap_outer: float
-            Outer aperture radius given in arcsec. The script will take care to convert it into pixels.
-            It the ending point to find the optimal aperture. Default is 60.0 arcsec.
+                Outer aperture radius given in arcsec. The script will take care to convert it into pixels.
+                It the ending point to find the optimal aperture. Default is 60.0 arcsec.
+                
         step_size: float
-            Step size for sampling aperture radii. Default is 0.25arcsec      
+                Step size for sampling aperture radii. Default is 0.25arcsec
+                
         aper_increase: float
             It is the increase in aperture to meet the condition
             aper_increase*optimal radius <= flux at opt.rad. * threshold.
             Default is 1.30, i.e. 30% increase in aperture.
+            
         threshold: float
             It is the condition to be met such as, at the optimal aperture radius,
             1.3*optimal radius <= flux at opt.rad. * threshold. Default is 1.08, i.e. 10% increase in flux.
+            
         profile_plot: bool
-            Plots the flux profile versus the aperture radius size. Default is False 
-        exclusion_rad: float
-            The radius (in arcsec) around each source that it maintains control of in the first iteration.
+            Plots the flux profile versus the aperture radius size. Default is False
             
         Returns
         -------
@@ -872,13 +677,13 @@ class SedFluxer:
                 flux_bkg, flux = self.get_flux(central_coords=central_coords,
                                                aper_rad=radius,
                                                inner_annu=1.0*radius,
-                                               outer_annu=2.0*radius, mask=mask).value
+                                               outer_annu=2.0*radius).value
                 unit = 1 # to consider Jy in label
             except:
                 flux_bkg, flux = self.get_raw_flux(central_coords=central_coords,
                                                aper_rad=radius,
                                                inner_annu=1.0*radius,
-                                               outer_annu=2.0*radius, mask=mask).value
+                                               outer_annu=2.0*radius).value
                 unit = 0 # to consider Jy in label
                 
             FLUX_BKG.append(flux_bkg)
@@ -887,8 +692,6 @@ class SedFluxer:
 
         x = np.copy(APER_RAD)
         y = np.copy(FLUX_BKG)
-        flux_increase = []
-        opt_rad = None
 
         for i in range(len(x)-1):
             #ideal radius is the radius aper_increase (default 30%) past the current radius
@@ -897,18 +700,10 @@ class SedFluxer:
             closest_radius_ind = np.argmin(np.abs(x - ideal_radius))
             #flux at this closest radius
             flux = y[closest_radius_ind]
-            
-            if i != 0:
-                flux_increase.append((y[i] - y[i-1])/y[i])
-            else:
-                flux_increase.append(np.nan)
-                
+
             if flux <= y[i]*threshold:
                 opt_rad = x[i]
                 break
-                
-        if opt_rad is None: #if threshold condition was never reached
-            opt_rad = x[np.argmin(flux_increase)] #output the radius that yields the smallest percentage flux increase
 
         if profile_plot:
 
@@ -927,262 +722,24 @@ class SedFluxer:
 
         return opt_rad
     
-    def opt_ap_crowded(self, coord_list, boundary_arcsec=60., ap_inner=5.0,ap_outer=60.0, step_size=0.25, aper_increase=1.3, threshold=1.1, tolerance=0.01, profile_plot=False, plot_map=False, exclusion_rad=5., max_iter=10, fluxes=None, min_flux=None):
-       
+    def plot_aps(self, coord_list, aperture_list):
+        
         '''
-        Finds the optimal apertures of the given source(s) in a region.
+        Plots a circular aperture for each source ontop of the image.
         
         Parameters
         ----------
         image: fits file
-            Image used to find the "optimal" aperture radii of each source. Should be either a Herschel 70
-            micron image or a SOFIA 37 micron image for best results.
-            
-        coords: list of `astropy.coordinates.SkyCoord` statements
-            Central coordinates where the apertures will be centred on the data image.
-            This must be a list of SkyCoord statements.
-            
-        boundary_arcsec: float
-            
-        ap_inner: float
-                Inner aperture radius given in arcsec. The script will take care to convert it into pixels.
-                It the starting point to find the optimal aperture. Default is 5.0 arcsec.
-                
-        ap_outer: float
-                Outer aperture radius given in arcsec. The script will take care to convert it into pixels.
-                It the ending point to find the optimal aperture. Default is 60.0 arcsec.
-                
-        step_size: float
-                Step size for sampling aperture radii. Default is 0.25arcsec.
-                
-        aper_increase: float
-            It is the increase in aperture to meet the condition
-            aper_increase*optimal radius <= flux at opt.rad. * threshold.
-            Default is 1.30, i.e. 30% increase in aperture.
-            
-        threshold: float
-            It is the condition to be met such as, at the optimal aperture radius,
-            1.3*optimal radius <= flux at opt.rad. * threshold. Default is 1.08, i.e. 10% increase in flux.
-            
-        tolerance: float
-            The fractional change in aperture radii between iterations at which the algorithm will stop 
-            and output the apertures. Default is 0.01 (i.e., 1% change).
-            
-        profile_plot: bool
-            Plots the flux profile versus the aperture radius size. Default is False.
-            
-        plot_map: bool
-            Plots the map showing which source (if any) each pixel is assigned to. Default is False.
-            
-        Returns
-        -------
-        aperture_list: list of floats
-            Optimal aperture radii defined by this method given in arcsec
-            
-        mask_list: list of arrays
-            List of masks for each source that the user provided coordinates for. Masks are Boolean types.
-
-        '''
-        wcs_header = WCS(self.image.header).celestial
-        img_shape = np.shape(self.data[0])
-        #initialize optimal aperture list given exlusion radius
-        optimal_apertures = [ap_inner]*len(coord_list)#np.zeros(len(coord_list)) #arcseconds
-        
-        if fluxes is not None and min_flux is not None:
-            fix_inds = np.where(np.array(fluxes)<min_flux)[0]
-            print("sources w/ ap fixed at the minimum:", fix_inds)
-        else:
-            fix_inds = []
-        
-        #get pixel scale
-        if 'CD1_1' in self.image.header:
-            pixel_scale = np.absolute(self.image.header['CD1_1'])*3600.0
-        elif 'CDELT1' in self.image.header:
-            pixel_scale = np.absolute(self.image.header['CDELT1'])*3600.0
-        
-        boundary = int(boundary_arcsec*pixel_scale)
-        x_sources = []
-        y_sources = []
-        
-        #record pixel positions of each source
-        for i in range(len(coord_list)):
-            x_source, y_source = wcs_header.world_to_pixel(coord_list[i])
-            x_sources.append(x_source)
-            y_sources.append(y_source)  
-        
-        stop = False 
-        iterations = 0
-        #changes_all = np.ones(len(coord_list))
-        store_apertures = np.zeros(len(coord_list))
-        avg_change = []
-        masks = list([np.zeros(img_shape, dtype=bool)]) * len(coord_list)
-        #If not converged (at least one aperture has changed by >1% since previous iteration 
-        while stop == False: 
-            #print(store_apertures)
-            print("iteration number:", iterations)
-            #Record apertures from preveous iteration to compute change later
-            old_aps = np.copy(optimal_apertures)
-            #Loop through sources
-            for i in range(len(coord_list)):
-                
-                #initialize mask as Boolean array of "False" values
-                mask = np.zeros(img_shape, dtype=bool)
-                x_target = x_sources[i]
-                y_target = y_sources[i]
-                distances = []
-                #For each source in list...
-                for src in range(len(coord_list)):
-                    #For sources other than current target
-                    if src != i:
-                        x_source = x_sources[src]
-                        y_source = y_sources[src]
-                        #retrieve radius to exclude around that source
-                        exclusion_rad = optimal_apertures[src]
-                        #calculate distance between current target and other source
-                        dist = distance.euclidean([x_target, y_target], [x_source, y_source])
-                        distances.append(dist*pixel_scale)
-                        #Loop through pixels within a certain window to save time -- need to fix this to make boundary generic
-                        for y in range(int(y_target)-boundary, int(y_target)+boundary+1):
-                            for x in range(int(x_target)-boundary, int(x_target)+boundary+1):
-                                #if pixel falls within the aperture of the other source...
-                                if (y-y_source)**2 + (x-x_source)**2 <= (exclusion_rad/pixel_scale)**2:
-                                    #AND is > ap_inner" away from current target
-                                    if (y-y_target)**2 + (x-x_target)**2 > (ap_inner/pixel_scale)**2:
-                                        #AND is closer to the other source than the target
-                                        if distance.euclidean([x_target, y_target], [x, y]) == distance.euclidean([x_source, y_source], [x, y]):
-                                            print("EQUAL")
-                                        elif distance.euclidean([x_target, y_target], [x, y]) > distance.euclidean([x_source, y_source], [x, y]):
-                                        #Mask this pixel out during optimal ap calculation
-                                            mask[y,x] = True
-                #Set upper bound of optimal aperture test to the distance to the source closest to the target
-                upper_rad = np.min(distances)
-                #Find optimal aperture with these constraints, masking out pixels that "belong" to another source
-               
-                if i not in fix_inds:
-                    ap = self.opt_ap_single(coord_list[i],step_size=step_size,ap_inner=ap_inner,ap_outer=upper_rad,
-                                              aper_increase=aper_increase,
-                                              threshold=threshold,profile_plot=False, mask=mask)  
-                else:
-                    ap = ap_inner
-                    
-                optimal_apertures[i] = ap
-                masks[i] = mask
-            #Calculate change in each aperture from previous iteration
-            change = (np.array(old_aps) - np.array(optimal_apertures))/np.array(old_aps)  
-            
-            #print("apertures:", optimal_apertures)
-            #print("changes:", change)
-
-            #print("average absolute change:", np.mean(np.abs(change)))
-            avg_change.append(np.mean(np.abs(change)))
-            store_apertures = np.vstack((np.copy(store_apertures), optimal_apertures)) 
-
-            if all(np.abs(num) <= tolerance for num in change):
-                stop = True 
-            
-            elif iterations >= max_iter:
-                best_ind = np.argmin(avg_change)
-                optimal_apertures = store_apertures[best_ind]
-                print("best iteration was", best_ind)
-                print("The apertures at this iteration were", optimal_apertures)
-                stop = True                             
-                             
-            iterations += 1
-                              
-        #create map of pixel assignments
-        assignment_map = np.zeros(np.shape(masks[0]))
-        if plot_map == True:
-            for i in range(len(masks)):
-                mask = masks[i]
-                x_target = x_sources[i]
-                y_target = y_sources[i]
-                rad = optimal_apertures[i]
-                for y in range(int(y_target)-int(rad)-1, int(y_target)+int(rad)+2):
-                    for x in range(int(x_target)-int(rad)-1, int(x_target)+int(rad)+2):
-                    #if pixel falls within the aperture of this source...
-                        if (y-y_target)**2 + (x-x_target)**2 <= (rad/pixel_scale)**2:
-                            if mask[y,x] == False:
-                                assignment_map[y,x] += i+1
-                
-            self.plot_mask(coord_list, optimal_apertures, assignment_map)
-
-        return optimal_apertures, masks
-    
-    def regrid_masks(self, images, master_img, master_mask):
-        
-        """
-        Given a list of corresponding images and masks, this function generates the masks
-        for each source at each wavelength. It accomplishes this by regridding the master
-        mask to generate a mask for each other wavelength image for each source.
- 
-        Parameters
-        ----------
-        src_name: string
-            Name of source (to be used in the file names for the masks)
-        images: list of fits files
-            Multiwavelength image data for the source 
-        master_img: FITS HDU
-            Image corresponding to the master mask. Use a Herschel 70 micron image for best results.
-        master_mask: 2D array of Boolean values
-            Mask that we want to regrid for the other wavelength images.
-        filter_names: List of strings
-            List of filter names for the multiwavelength image data. These MUST be in the same order as the images.
-        
-        Returns
-        -------  
-        all_masks: List of lists containing masks
-            List of masks corresponding to each source at each wavelength. Note: index masks using 
-            mask = masks[source_number][image_number]
-        
-        """
-        
-        def regrid(template, mask_hdu):
-            '''
-            Parameters
-            ----------
-            template: HDU that will act as a template for the new, regridded HDU
-            mask_hdu: HDU of mask before regridding
-            Returns
-            ------- 
-            regridded: regridded mask
-            '''
-            mask_data = mask_hdu.data
-            mask_header = mask_hdu.header
-            regridded, _ = reproject_exact((mask_data, mask_header), template.header)
-            return regridded
-
-        masks_regridded = []
-        #Now, regrid these masks based on the master image for each other wavelength
-        mask_to_regrid = master_mask
-        mask_to_regrid_hdu = pyfits.PrimaryHDU(data = (mask_to_regrid).astype(int), header = master_img.header)
-        for i in range(len(images)):
-             #"template" image to use for the regridding
-            template = images[i]
-            regridded_mask = np.round(regrid(template, mask_to_regrid_hdu),0).astype(int).astype(bool)
-            #regridded_mask = regrid(template, mask_to_regrid_hdu).astype(int).astype(bool)
-
-            masks_regridded.append(regridded_mask)
-
-        return masks_regridded
-    
-    
-    def plot_aps(self, coord_list, aperture_list, pixel_map=None, xlim=None, ylim=None, show=True):
-        
-        """
-        Plots apertures ontop of image
-        
-        Parameters
-        ----------
-        image: FITS HDU
             Image to plot
-        coord_list: list of `astropy.coordinates.SkyCoord` statements
+        coord_list: list of `astropy.coordinates.SkyCoord`
             List of coordinates on which each aperture is centered
-        aperture_list: list of aperture radii to plot
+        aperture_list: list of floats
+            List of aperture radii to plot
         
         Returns
         -------
-        None. Just plots apertures.
-        """
+        Plots apertures over the image.
+        '''
         
         data,header = self.data 
         
@@ -1201,43 +758,31 @@ class SedFluxer:
         x_source_cent, y_source_cent = wcs_header.world_to_pixel(coord_list[0])
         
         #plot image
-        
         primary_ap_rad_pixel = np.max(aperture_list)/pixel_scale 
-        data_for_norm = data#[int(y_source_cent-5.0*primary_ap_rad_pixel):int(y_source_cent+5.0*primary_ap_rad_pixel),
-                                 #int(x_source_cent-5.0*primary_ap_rad_pixel):int(x_source_cent+5.0*primary_ap_rad_pixel)]
-        norm = simple_norm(data_for_norm[data_for_norm>0], stretch='log', percent=100.)
+        data_for_norm = data[int(y_source_cent-5.0*primary_ap_rad_pixel):int(y_source_cent+5.0*primary_ap_rad_pixel),
+                                 int(x_source_cent-5.0*primary_ap_rad_pixel):int(x_source_cent+5.0*primary_ap_rad_pixel)]
+        norm = simple_norm(data_for_norm[data_for_norm>0], stretch='log', percent=99.5)
         #tr = scipy.ndimage.rotate(data, 45)
         plt.imshow(data, cmap='inferno', origin='lower', norm=norm)
         
         #set x and y limits and labels
-        #plt.xlim(x_source_cent-5.0*primary_ap_rad_pixel, x_source_cent+5.0*primary_ap_rad_pixel)
-        #plt.ylim(y_source_cent-5.0*primary_ap_rad_pixel, y_source_cent+5.0*primary_ap_rad_pixel)
-        if xlim:
-            plt.xlim(xlim[0], xlim[1])
-        if ylim:
-            plt.ylim(ylim[0], ylim[1])
+        plt.xlim(x_source_cent-5.0*primary_ap_rad_pixel, x_source_cent+5.0*primary_ap_rad_pixel)
+        plt.ylim(y_source_cent-5.0*primary_ap_rad_pixel, y_source_cent+5.0*primary_ap_rad_pixel)
         plt.xlabel('RA (J2000)')
         plt.ylabel('Dec (J2000)')
         
         #plot apertures
         for i in range(len(aperture_list)):
             x_source, y_source = wcs_header.world_to_pixel(coord_list[i])
-            plt.plot(x_source, y_source,'ko', markersize=2)
-            plt.text(x_source+3, y_source+3, i, color='white', fontsize=8)
+            plt.plot(x_source, y_source,'kx')
             #defines the aperture size in pixels
             aper_rad_pixel = aperture_list[i]/pixel_scale
             aperture = CircularAperture([[x_source,y_source]], r=aper_rad_pixel)
             aperture.plot(color='white', linewidth=1.5)
             
-        if pixel_map is not None:
-            mask_to_plot = np.array(pixel_map)
-            mask_cmap = plt.cm.Greys_r
-            mask_cmap.set_bad(color='white',alpha=0.)
-            plt.imshow(mask_to_plot,vmin=0,vmax=1,cmap=mask_cmap,alpha=0.1)
-            
         colorbar=True
         if colorbar:
-            cbar_ticks = np.logspace(np.log10(norm.vmin),np.log10(norm.vmax),num=5)
+            cbar_ticks = np.around(np.linspace(norm.vmin,norm.vmax,num=5))
             if 'BUNIT' in header:
                 cbar = plt.colorbar(label='PixelUnits: {0}'.format(header['BUNIT']), pad=0.01)
             elif 'FUNITS' in header:
@@ -1248,60 +793,8 @@ class SedFluxer:
                 cbar = plt.colorbar(label='PixelUnits: check header', pad=0.01)
             cbar.set_ticks(cbar_ticks)
             cbar.set_ticklabels(cbar_ticks)
-            cbar.ax.set_yticklabels(["{:.2f}".format(i) for i in cbar_ticks])
-         
-        if show:
-            plt.show()
-            
-    def plot_mask(self, coord_list, rad_list, mask):
-        """
-        Plots a Boolean mask as a 2D image (bright pixels indicate True/masking)
-        Parameters
-        ----------
-        image: fits file
-            Image for which we would like to calculate the "optimal" aperture radius
-        central_coords: `astropy.coordinates.SkyCoord`
-            Central coordinates where the apertures will be centred on the data image.
-            This must be a SkyCoord statement.
-        rad: float
-            radius of aperture (used for x and y lims of plot)
-        mask: 2D Boolean array
-            mask to plot
-        Returns
-        --------
-        None. Just plots mask.
-        """
-        wcs_header = WCS(self.image.header).celestial
-        #pixel location of source 
-        x_source_central, y_source_central = wcs_header.world_to_pixel(coord_list[0])
-        if 'CD1_1' in self.image.header:
-            pixel_scale = np.absolute(self.image.header['CD1_1'])*3600.0
-        elif 'CDELT1' in self.image.header:
-            pixel_scale = np.absolute(self.image.header['CDELT1'])*3600.0
-        plt.figure()
-        plt.subplot(projection=wcs_header)
-        
-#         plt.xlim(x_source_central-5.0*rad_list[0]/pixel_scale,x_source_central+5.0*np.max(rad_list)/pixel_scale)
-#         plt.ylim(y_source_central-5.0*rad_list[0]/pixel_scale,y_source_central+5.0*np.max(rad_list)/pixel_scale)
 
         
-        #defines the aperture size in pixels
-        for i in range(len(coord_list)):
-            x_source, y_source = wcs_header.world_to_pixel(coord_list[i])
-            rad = rad_list[i]
-            aper_rad_pixel = rad/pixel_scale
-            aperture = CircularAperture([[x_source,y_source]], r=aper_rad_pixel)
-            aperture.plot(color='red')
-            plt.plot(x_source, y_source,'rx')
-            
-        plt.xlabel('RA (J2000)')
-        plt.ylabel('Dec (J2000)')
-        
-        mask_int = mask
-            
-        plt.imshow(mask_int)
-        plt.show()
-            
 class FitterContainer():
     '''
     A class to store the results from the SedFluxer class
@@ -1518,7 +1011,7 @@ class SedFitter(object):
     '''
     A class used to fit the SED model grid
     '''
-    def __init__(self, extc_law='kmh',
+    def __init__(self, extc_law=None,
                  lambda_array=None,
                  flux_array=None,
                  err_flux_array=None,
@@ -1552,178 +1045,6 @@ class SedFitter(object):
             ALL_model_idx.append([int(i[0:11][0:2]),int(i[0:11][3:5]),
                                   int(i[0:11][6:8]),int(i[0:11][9:11])])
         return(ALL_model_dat,ALL_model_idx)
-
-    def get_sed(self,mcore=10, sigma=0.1, mstar=0.5, theta_view=22.33, av=0,dist=1000, filter_array=None):
-        '''
-        Retrive the SED for give physical parameters.
-        Note that not all combinations of the parameters are present in the models database,
-        an error will be raised, please try with other combination
-        
-        Parameters
-        ----------
-        mc: float
-            mass of the core (Msun) for the SED to be retrieved. Allowed values are:
-            [10.0,20.0,30.0,40.0,50.0,60.0,80.0,100.0,120.0,160.0,200.0,240.0,320.0,400.0,480.0]
-
-        sigma: float
-            mass surface density of the clump (g/cm2) for the SED to be retrieved. Allowed values are:
-            [0.1,0.316,1.0,3.16]
-
-        mstar: float
-            mass of the star (Msun) for the SED to be retrieved. Allowed values are:
-            [0.5,1.0,2.0,4.0,8.0,12.0,16.0,24.0,32.0,48.0,64.0,96.0,128.0,160.0]
-
-        theta_view: float
-            viewing angle (deg) for the SED to be retrieved. Allowed values are:
-            [12.84, 22.33, 28.96, 34.41, 39.19, 43.53, 47.55, 51.32, 54.90, 58.33,
-             61.64, 64.85, 67.98, 71.03, 74.04, 77.00, 79.92, 82.82, 85.70, 88.57]
-            
-        Av: float
-            visual extintion (mag) for the SED to be extincted. Allowed values are:
-            >0
-            
-        filter_array: str (or array of str)
-            Name(s) of the filter(s) to convolve the SED. It convolves by the filter responde the model SED value.
-            Default None.
-            
-        Returns
-        ----------
-        lambda_model, flux_model_extincted : (array,array)
-            wavelength and flux for the selected physical parameters
-            If filter_array is not None, lambda_model, flux_model_extincted have the same length as filter_array.
-        '''
-        
-        #loading here SED model files, extinction law, default parameters
-        norm_extc_law = self.extc_law
-        MODEL_DATA, MODEL_IDX = self.model_data
-        master_dir = self.master_dir
-        default_filters_table = self.default_filters
-        filter_name = default_filters_table['filter']
-        filter_wavelength = default_filters_table['wavelength']
-        
-        #database compose of this
-        nmc=15
-        mc_arr=np.array([10.0,20.0,30.0,40.0,50.0,60.0,80.0,100.0,120.0,160.0,200.0,240.0,320.0,400.0,480.0])
-
-        nsigma=4
-        sigma_arr=np.array([0.1,0.316,1.0,3.16])
-
-        nmstar=14
-        mstar_arr=np.array([0.5,1.0,2.0,4.0,8.0,12.0,16.0,24.0,32.0,48.0,64.0,96.0,128.0,160.0])
-
-        nmu=20
-        mu_arr=np.arange(float(nmu))/float(nmu)+1.0/float(nmu)/2.0
-        mu_arr=mu_arr[::-1] #reversing the array
-        theta_arr=np.arccos(mu_arr)/np.pi*180.0
-        
-        #check input parameters are in database:
-        
-        if mcore not in mc_arr:
-            print('input core mass (mc)', mcore, 'is not in the database')
-            print('please input one of the following:')
-            print(mc_arr)
-            raise ValueError("")
-        if sigma not in sigma_arr:
-            print('input mass surface density (sigma)', sigma, 'is not in the database')
-            print('please input one of the following:')
-            print(sigma_arr)
-            raise ValueError("")
-        if mstar not in mstar_arr:
-            print('input stellar mass (m_star)', mstar, 'is not in the database')
-            print('please input one of the following:')
-            print(mstar_arr)
-            raise ValueError("")
-        if np.round(theta_view,2) not in np.round(theta_arr,2):
-            print('input viewing angle (theta_view)', theta_view, 'is not in the database')
-            print('please input one of the following:')
-            print(np.round(theta_arr,2))
-            raise ValueError("")
-        if av<0:
-            print('Av must be a positive float')
-            raise ValueError("")
-            
-        if filter_array is not None:
-            #checks if the user input a single filter without being an array
-            if type(filter_array)==str:
-                #if so convert into one
-                filter_array = [filter_array]
-            for filt in filter_array:
-                if filt not in filter_name:
-                    print(filt,'is not in the default filters database')
-                    print('Please, make sure to input one of the following:')
-                    default_filters_table.pprint()
-                    raise ValueError("")
-                    
-            filter_idx = []
-            for filter_value in filter_array:
-                filter_idx.append(np.where(filter_name==filter_value)[0][0])
-
-            lambda_array_filters = filter_wavelength[filter_idx] #this is use for the convolution
-            filter_array_model = filter_name[filter_idx]
-
-            #load the filters lambda and responses to make the convolution
-            FILTER_wave_resp = []
-            for filter_NAME in filter_array_model:
-                filter_file = np.loadtxt(master_dir+'/Model_SEDs/parfiles/'+filter_NAME+'.txt',unpack=True)
-
-                fwave = filter_file[0]
-                fresponse = filter_file[1]
-
-                fnu=c_micron_s/fwave
-                nf=len(fnu)
-
-                if fnu[0] > fnu[1]:
-                    fnu=fnu[::-1]
-                    fresponse=fresponse[::-1]
-
-                dfnu=fnu[1:nf-1]-fnu[0:nf-2]
-                fint=np.sum(0.5*(fresponse[0:nf-2]+fresponse[1:nf-1])*dfnu)
-                fresponse=fresponse[1:nf-1]/fint
-                fwave=fwave[1:nf-1]
-
-                FILTER_wave_resp.append([fwave,fresponse,dfnu])
-
-        if mcore in mc_arr:
-            mc_idx = np.where(mc_arr==mcore)[0]
-        if sigma in sigma_arr:
-            sigma_idx = np.where(sigma_arr==sigma)[0]
-        if mstar in mstar_arr:
-            mstar_idx = np.where(mstar_arr==mstar)[0]
-        if np.round(theta_view,2) in np.round(theta_arr,2):
-            mu_idx = np.where(np.round(theta_arr,2)==np.round(theta_view,2))[0]
-            
-        SED_number = '{0:0=2d}_{1:0=2d}_{2:0=2d}_{3:0=2d}'.format(int(mc_idx)+1,int(sigma_idx)+1,
-                                                                  int(mstar_idx)+1,int(mu_idx)+1)
-        
-        if SED_number+'.dat' in os.listdir(master_dir+'/Model_SEDs/sed/'):
-            #access the data in the models
-            sed = np.loadtxt(master_dir+'/Model_SEDs/sed/'+SED_number+'.dat',unpack=True)
-            lambda_model = sed[0] #micron
-            flux_model = sed[1]*Lsun2erg_s/(4.0*np.pi*(pc2cm*dist)**2.0) #from Lsun to erg s-1 cm-2
-            flux_model_extincted = flux_model*10.0**(-0.4*av*norm_extc_law)
-            
-            if filter_array is not None:
-                flux_model_extincted_CONV = []
-                for filt_conv,filt_wave in zip(FILTER_wave_resp,lambda_array_filters):
-                    fwave = filt_conv[0]
-                    fresponse = filt_conv[1]
-                    dfnu=filt_conv[2]
-
-                    I_arr1=np.interp(fwave[::-1],lambda_model[::-1],flux_model_extincted[::-1])
-                    I_arr1=I_arr1/c_micron_s*fwave[::-1]
-                    I_filt=np.sum(I_arr1*dfnu[::-1]*fresponse[::-1])
-                    I_filt=I_filt*c_micron_s/filt_wave
-                    flux_model_extincted_CONV.append(I_filt)
-                flux_model_extincted_CONV = np.array(flux_model_extincted_CONV)
-                return(lambda_array_filters,flux_model_extincted_CONV)
-                
-            
-        else:
-            raise ValueError('The specific combination of input parameters mc=',
-                             mc,'sigma=', sigma,'mstar=', mstar,'theta_view=', theta_view,
-                             'is not in the database, please try another combination')
-        
-        return(lambda_model,flux_model_extincted)
 
     @property
     def print_default_filters(self):
