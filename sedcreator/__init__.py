@@ -228,8 +228,13 @@ class FluxerContainer():
         else:
             print('')
 
+<<<<<<< HEAD
 
     def plot(self,cmap='gray',percent=100.0,stretch='log',colorbar=True,aperture_color='black',annulus_color='red',plot_mask=False,title=None,figname=None):
+=======
+        
+    def plot(self,figsize=(6,4),cmap='gray',percent=100.0,stretch='log',colorbar=True,aperture_color='black',annulus_color='red',plot_mask=False,title=None,figname=None):
+>>>>>>> c741e6db0d5b50df045069f4f27c53c8eec63efd
         '''
         Plots the used image together with the aperture used for the flux
         and the annulus for the background subtraction.
@@ -238,13 +243,19 @@ class FluxerContainer():
         ----------
         cmap: str
             Color map from matplolib to be used in the image. Default is 'gray'
+            
+        figsize: tuple
+            specify the size of the figure. Default is (6,4)
+            
         stretch: {'linear', 'sqrt', 'power', 'log', 'asinh'}, optional
             The stretch function to apply to the image. The default is 'log'.
+            
         percent: float, optional
             The percentage of the image values used to determine the pixel values
             of the minimum and maximum cut levels. The lower cut level will set at the
             (100 - percent) / 2 percentile, while the upper cut level will be set at the
             (100 + percent) / 2 percentile. The default is 100.0.
+            
         aperture_color: str
                     Circular aperture color to show in the image. Default is 'black'
 
@@ -267,8 +278,13 @@ class FluxerContainer():
         #reading the data
         data,header = self.data
         mask = self.mask
+<<<<<<< HEAD
 
         plt.figure()
+=======
+        
+        plt.figure(figsize=figsize)
+>>>>>>> c741e6db0d5b50df045069f4f27c53c8eec63efd
         plt.subplot(projection=self.wcs_header)
         #This is to get around no good stretch for SOFIA images
         if 'OBSERVAT' in header:
@@ -1528,16 +1544,19 @@ class SedFitter(object):
 
         #Checks to ensure inputs are correct
         if lambda_array is not None:
+            lambda_array=np.array(lambda_array)
             if any(lambda_array<0):
                 raise ValueError("A value in the lambda array is negative, please check")
             if any(np.isnan(lambda_array)):
                 raise ValueError("A value in the lambda array is nan, please check")
         if flux_array is not None:
+            flux_array=np.array(flux_array)
             if any(flux_array<0):
                 raise ValueError("A value in the flux array is negative, please check")
             if any(np.isnan(flux_array)):
                 raise ValueError("A value in the flux array is nan, please check")
         if err_flux_array is not None:
+            err_flux_array=np.array(err_flux_array)
             if any(np.isnan(err_flux_array)):
                 raise ValueError("A value in the error flux array is nan, please check")
 
@@ -1549,9 +1568,15 @@ class SedFitter(object):
             the_len = len(next(it))
             if not all(len(l) == the_len for l in it):
                 raise ValueError('not all arrays have same length!, please check')
+<<<<<<< HEAD
 
+=======
+            
+            
+>>>>>>> c741e6db0d5b50df045069f4f27c53c8eec63efd
         #making sure upper limits array is bool
         if upper_limit_array is not None:
+            upper_limit_array=np.array(upper_limit_array)
             if not upper_limit_array.dtype=='bool':
                 upper_limit_array = np.array(upper_limit_array,dtype=bool)
 
@@ -3044,7 +3069,6 @@ class ModelPlotter(FitterContainer):
         cmap = plt.cm.ScalarMappable(cmap=cmap,
                                      norm=colors.LogNorm(vmin=models['chisq'].min(),
                                                          vmax=models['chisq'].max()))
-        #cmap.set_array([])
 
         plt.figure(figsize=figsize)
         for ind_mod in models:
@@ -3077,8 +3101,13 @@ class ModelPlotter(FitterContainer):
             plt.title(title)
         if colorbar:
             cbar = plt.colorbar(cmap,label=r'$\chi^2$')
-            cbar.set_ticks([models['chisq'].min(),5,10,50,models['chisq'].max()])
-            cbar.set_ticklabels([np.around(models['chisq'].min(),decimals=1),5,10,50,np.around(models['chisq'].max(),decimals=1)])
+            cbar.minorticks_off()
+            cbar.set_ticks(np.logspace(np.log10(models['chisq'].min()),
+                                       np.log10(models['chisq'].max()),num=5))
+            #trick to consider the adecuate number of decimals in round
+            dec = int(np.floor(np.abs(np.log10(models['chisq'].min()))))+1 #it has to be an integer
+            cbar.set_ticklabels(np.around(np.logspace(np.log10(models['chisq'].min()),
+                                                      np.log10(models['chisq'].max()),num=5),decimals=dec))
         if figname is not None:
             plt.savefig(figname, dpi=300, bbox_inches="tight")
             print('Image saved in ',figname)
@@ -3282,9 +3311,19 @@ class ModelPlotter(FitterContainer):
         ax3.set_aspect(1.0/ax3.get_data_ratio(), adjustable='box')
 
         cbar = fig.colorbar(sct3,label=r'$\chi^2$',shrink=0.36,pad=0.01,orientation='vertical',ax=axs)
+<<<<<<< HEAD
         cbar.set_ticks([triple_sigma_ms['chisq'].min(),5,10,50,triple_sigma_ms['chisq'].max()])
         cbar.set_ticklabels([np.around(triple_sigma_ms['chisq'].min(),decimals=1),5,10,50,np.around(triple_sigma_ms['chisq'].max(),decimals=1)])
 
+=======
+        cbar.minorticks_off()
+        cbar.set_ticks(np.logspace(np.log10(triple_sigma_ms['chisq'].min()),
+                                   np.log10(triple_sigma_ms['chisq'].max()),num=5))
+        #trick to consider the adecuate number of decimals in round
+        dec = int(np.floor(np.abs(np.log10(triple_sigma_ms['chisq'].min()))))+1 #it has to be an integer
+        cbar.set_ticklabels(np.around(np.logspace(np.log10(triple_sigma_ms['chisq'].min()),
+                                                  np.log10(triple_sigma_ms['chisq'].max()),num=5),decimals=dec))
+>>>>>>> c741e6db0d5b50df045069f4f27c53c8eec63efd
         if title is not None:
             fig.suptitle(title,y=0.8)
 
