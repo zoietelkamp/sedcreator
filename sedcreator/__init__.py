@@ -1,5 +1,7 @@
 '''
-Updates as of 07/05:
+Updates as of 09/02:
+
+ADDED NEW SEDCREATOR UPDATES (LOG/LINEAR ERROR OPTION, NEW BKG EST. METHOD, ETC.)
 
 optimal aperture functions:
     -Functions have been renamed and a new one has been added. Now, "aperture_finder" is a function that takes in all of the
@@ -81,7 +83,6 @@ from astropy.visualization import simple_norm
 from astropy.stats import sigma_clipped_stats
 from astropy.constants import c, m_e, m_n, m_p
 
-<<<<<<< HEAD
 from photutils import aperture_photometry
 from photutils import CircularAperture, CircularAnnulus
 from reproject import reproject_interp, reproject_exact
@@ -90,10 +91,9 @@ from astropy.nddata.utils import Cutout2D
 from reproject import reproject_interp, reproject_exact
 from matplotlib.ticker import FuncFormatter
 
-=======
+
 from photutils.aperture import aperture_photometry
 from photutils.aperture import CircularAperture, CircularAnnulus
->>>>>>> 9a5a1fef26b19262f25fc35c3f30071c22379200
 
 #constants for SedFitter
 pc2cm = u.pc.to(u.cm)
@@ -139,15 +139,15 @@ class FluxerContainer():
         '''
         Outputs the background-subtracted flux, the flux including the background,
         the flux error, and the background estimate
-        
+
         Returns
         -------
         flux_bkgsub,flux,error_flux,background: numpy array
-        
+
         '''
-        
+
         return(self.flux_bkgsub,self.flux,self.error_flux,self.flux-self.flux_bkgsub)
-    
+
     @property
     def info(self):
         if self.__info is None:
@@ -247,19 +247,19 @@ class FluxerContainer():
         ----------
         cmap: str
             Color map from matplolib to be used in the image. Default is 'gray'
-            
+
         figsize: tuple
             specify the size of the figure. Default is (6,4)
-            
+
         stretch: {'linear', 'sqrt', 'power', 'log', 'asinh'}, optional
             The stretch function to apply to the image. The default is 'log'.
-            
+
         percent: float, optional
             The percentage of the image values used to determine the pixel values
             of the minimum and maximum cut levels. The lower cut level will set at the
             (100 - percent) / 2 percentile, while the upper cut level will be set at the
             (100 + percent) / 2 percentile. The default is 100.0.
-            
+
         aperture_color: str
                     Circular aperture color to show in the image. Default is 'black'
 
@@ -282,7 +282,7 @@ class FluxerContainer():
         #reading the data
         data,header = self.data
         mask = self.mask
-        
+
         plt.figure(figsize=figsize)
         plt.subplot(projection=self.wcs_header)
         #This is to get around no good stretch for SOFIA images
@@ -304,11 +304,11 @@ class FluxerContainer():
 
         norm = simple_norm(data_for_norm[data_for_norm>0], stretch=stretch, percent=percent)
         plt.imshow(data, cmap=cmap, origin='lower', norm=norm)
-        plt.plot(self.x_source,self.y_source,'rx')
+        #plt.plot(self.x_source,self.y_source,'rx')
         plt.xlim(self.x_source-5.0*self.aper_rad_pixel,self.x_source+5.0*self.aper_rad_pixel)
         plt.ylim(self.y_source-5.0*self.aper_rad_pixel,self.y_source+5.0*self.aper_rad_pixel)
-        self.aperture.plot(color=aperture_color)
-        self.annulus_aperture.plot(color=annulus_color,ls='--')
+        #self.aperture.plot(color=aperture_color)
+        #self.annulus_aperture.plot(color=annulus_color,ls='--')
         #in case we are dealing with galactic coordinates
         if 'GLON' in self.wcs_header.axis_type_names or 'glon' in self.wcs_header.axis_type_names:
             plt.xlabel('GLON')
@@ -326,18 +326,18 @@ class FluxerContainer():
                 cbar = plt.colorbar(label='{0}'.format(header['COMMENT'][17]), pad=0.01)
             else:
                 cbar = plt.colorbar(label='PixelUnits: check header', pad=0.01)
-                
+
             cbar.minorticks_off()
             cbar.set_ticks(np.logspace(np.log10(norm.vmin),np.log10(norm.vmax),num=5))
             #trick to consider the adecuate number of decimals in round
             dec = int(np.floor(np.abs(np.log10(norm.vmin))))+1 #it has to be an integer
             cbar.set_ticklabels(np.around(np.logspace(np.log10(norm.vmin),np.log10(norm.vmax),num=5),decimals=dec))
 #             cbar.ax.set_yticklabels(["{:.2f}".format(i) for i in cbar_ticks])
-            
+
         if title is not None:
             plt.title(title)
 
-            
+
         if plot_mask and mask is not None:
             mask_to_plot = np.array(mask,dtype=int)
             mask_cmap = plt.cm.Greys_r
@@ -486,7 +486,7 @@ class SedFluxer:
                                            r_in=inner_annu_pixel, r_out=outer_annu_pixel)
 
         aperture_area = aperture.area #main area for corrective factor in fluctuation estimation when masked
-        
+
         #here is the main code for the aperture photometry
         #--> START of the aperture photometry block
         annulus_masks = annulus_aperture.to_mask(method='center')
@@ -527,24 +527,24 @@ class SedFluxer:
 
             bkg_aper = CircularAperture(bkg_pos, r=aper_rad_pixel/2.0)
             bkg_aper_areas = bkg_aper.area_overlap(data=data,mask=mask)
-            
+
             bkg_phot = aperture_photometry(data, bkg_aper,mask=mask)
-            
+
             #getting correcting factor when part of the fluctuation areas are masked
             #here we assumed that area=nan is 0 and that the flux obtained in the masked
             #areas is directly proportional to the total flux
             area_corr_set1 = np.nansum(bkg_aper_areas[0:4])/aperture_area
             area_corr_set2 = np.nansum(bkg_aper_areas[4:8])/aperture_area
             area_corr_set3 = np.nansum(bkg_aper_areas[8:12])/aperture_area
-            
+
             aper_set1 = bkg_phot['aperture_sum'][0:4].sum()/area_corr_set1
             aper_set2 = bkg_phot['aperture_sum'][4:8].sum()/area_corr_set2
             aper_set3 = bkg_phot['aperture_sum'][8:12].sum()/area_corr_set3
-            
+
             std = np.nanstd([aper_set1,aper_set2,aper_set3])#ignoring nans
             STD.append(std)
         STD_mean = np.mean(STD)
-        
+
         #This block is to deal with WISE DN units
         #The first if else is to deal with both WISE images the one downloaded from Skyview and from WISE archive
         if ('TELESCOP' in header) & ('BAND' in header):
@@ -643,7 +643,7 @@ class SedFluxer:
                 #DISCLAMER:Flux without bkgsub does not really makes sense, only here for completeness
                 flux = F_nu_0*10.0**(-Mcal.data[0]/2.5) #Jy
                 error_flux = F_nu_0*10.0**(-Mcal_error/2.5) #Jy
-                    
+
             else:
                 raise Exception('No valid information found in the header, use get_raw_flux() function and perform own units transformation')
 
@@ -783,7 +783,7 @@ class SedFluxer:
                                            r_in=inner_annu_pixel, r_out=outer_annu_pixel)
 
         aperture_area = aperture.area #main area for corrective factor in fluctuation estimation when masked
-        
+
         #here is the main code for the aperture photometry
         #--> START of the aperture photometry block
         annulus_masks = annulus_aperture.to_mask(method='center')
@@ -825,24 +825,24 @@ class SedFluxer:
 
             bkg_aper = CircularAperture(bkg_pos, r=aper_rad_pixel/2.0)
             bkg_aper_areas = bkg_aper.area_overlap(data=data,mask=mask)
-            
+
             bkg_phot = aperture_photometry(data, bkg_aper,mask=mask)
-            
+
             #getting correcting factor when part of the fluctuation areas are masked
             #here we assumed that area=nan is 0 and that the flux obtained in the masked
             #areas is directly proportional to the total flux
             area_corr_set1 = np.nansum(bkg_aper_areas[0:4])/aperture_area
             area_corr_set2 = np.nansum(bkg_aper_areas[4:8])/aperture_area
             area_corr_set3 = np.nansum(bkg_aper_areas[8:12])/aperture_area
-            
+
             aper_set1 = bkg_phot['aperture_sum'][0:4].sum()/area_corr_set1
             aper_set2 = bkg_phot['aperture_sum'][4:8].sum()/area_corr_set2
             aper_set3 = bkg_phot['aperture_sum'][8:12].sum()/area_corr_set3
-            
+
             std = np.nanstd([aper_set1,aper_set2,aper_set3])#ignoring nans
             STD.append(std)
         STD_mean = np.mean(STD)
-        
+
         flux_bkgsub = ap_phot['aper_sum_bkgsub'].data[0]
         flux = ap_phot['aperture_sum'].data[0]
         error_flux = STD_mean
@@ -991,7 +991,7 @@ class SedFluxer:
                                                                            inner_annu=1.0*radius,
                                                                            outer_annu=2.0*radius).value
                 unit = 0 # to not consider Jy in label
-                
+
             FLUX_BKG.append(flux_bkg)
             FLUX.append(flux)
 
@@ -1035,7 +1035,7 @@ class SedFluxer:
             plt.xlim(0)
             plt.ylim(0)
             plt.show()
-    
+
 
         return opt_rad
 
@@ -1638,7 +1638,7 @@ class SedFitter(object):
                  err_flux_array=None,
                  upper_limit_array=None,
                  filter_array=None):
-        
+
         #Checks to ensure inputs are correct
         if lambda_array is not None:
             lambda_array=np.array(lambda_array)
@@ -1673,7 +1673,7 @@ class SedFitter(object):
             upper_limit_array=np.array(upper_limit_array)
             if not upper_limit_array.dtype=='bool':
                 upper_limit_array = np.array(upper_limit_array,dtype=bool)
-        
+
         self.lambda_array = lambda_array
         self.flux_array = flux_array
         self.err_flux_array = err_flux_array
@@ -1871,7 +1871,7 @@ class SedFitter(object):
                              'is not in the database, please try another combination')
 
         return(lambda_model,flux_model_extincted)
-            
+
     @property
     def print_default_filters(self):
         if self.__print_default_filters is None:
@@ -1955,13 +1955,13 @@ class SedFitter(object):
         sed_lambda_model = self.sed_lambda_model
 
         treat_errors = self.treat_errors
-        
+
         #including differentiation between log and linear space
         if treat_errors=='log':
             flux_model_log_extc = flux_model_log-0.4*av*norm_extc_law
         else:
             flux_model_log_extc = flux_model_log*10**(-0.4*av*norm_extc_law)
-            
+
         flux_model_log_extc_conv = self.sed_convolution(FILTER_wave_resp,
                                                         lambda_array_model,
                                                         sed_lambda_model,
@@ -1977,7 +1977,7 @@ class SedFitter(object):
         '''
 
         treat_errors = self.treat_errors
-        
+
         if treat_errors=='log':
             #preparing the fluxes and errors in log space
             flux_fit_log_arr=np.log10(self.flux_array,dtype=np.float64)
@@ -1995,27 +1995,33 @@ class SedFitter(object):
             nfit = len(self.upper_limit_array) #total number of points
             errup_fit_log_arr[self.upper_limit_array] = 1.0e33 #set upper limit errors to very high value
             errlo_fit_log_arr[self.upper_limit_array] = 1.0e33 #set lower limit errors to very high value
-            
+
             flux_model_ext_conv = self.sed_extinction(flux_model,av) #extincted and then convoluted
 
-        lo_err_for_chisq = flux_model_ext_conv<flux_fit_log_arr
-        chisq_lo = np.sum((flux_model_ext_conv[lo_err_for_chisq]-flux_fit_log_arr[lo_err_for_chisq])**2.0/errlo_fit_log_arr[lo_err_for_chisq]**2.0)
+            up_err_for_chisq = flux_model_ext_conv>=flux_fit_log_arr
+            percentage_error_up = self.err_flux_array[up_err_for_chisq]/self.flux_array[up_err_for_chisq]
+            errup_fit_log_arr[up_err_for_chisq] = np.log10(1.0+percentage_error_up,dtype=np.float64)
+            chisq_up = np.sum((flux_model_ext_conv[up_err_for_chisq]-flux_fit_log_arr[up_err_for_chisq])**2.0\
+                              /errup_fit_log_arr[up_err_for_chisq]**2.0)
 
-        chisq = (chisq_up+chisq_lo)/float(nfit)
-        up_err_for_chisq = flux_model_ext_conv>=flux_fit_log_arr
-        percentage_error_up = self.err_flux_array[up_err_for_chisq]/self.flux_array[up_err_for_chisq]
-        errup_fit_log_arr[up_err_for_chisq] = np.log10(1.0+percentage_error_up,dtype=np.float64)
-        chisq_up = np.sum((flux_model_ext_conv[up_err_for_chisq]-flux_fit_log_arr[up_err_for_chisq])**2.0\
-                          /errup_fit_log_arr[up_err_for_chisq]**2.0)
+            lo_err_for_chisq = flux_model_ext_conv<flux_fit_log_arr
+            chisq_lo = np.sum((flux_model_ext_conv[lo_err_for_chisq]-       flux_fit_log_arr[lo_err_for_chisq])**2.0/errlo_fit_log_arr[lo_err_for_chisq]**2.0)
 
-        lo_err_for_chisq = flux_model_ext_conv<flux_fit_log_arr
-        chisq_lo = np.sum((flux_model_ext_conv[lo_err_for_chisq]-flux_fit_log_arr[lo_err_for_chisq])**2.0\
-                          /errlo_fit_log_arr[lo_err_for_chisq]**2.0)
+            chisq = (chisq_up+chisq_lo)/float(nfit)
+            up_err_for_chisq = flux_model_ext_conv>=flux_fit_log_arr
+            percentage_error_up = self.err_flux_array[up_err_for_chisq]/self.flux_array[up_err_for_chisq]
+            errup_fit_log_arr[up_err_for_chisq] = np.log10(1.0+percentage_error_up,dtype=np.float64)
+            chisq_up = np.sum((flux_model_ext_conv[up_err_for_chisq]-flux_fit_log_arr[up_err_for_chisq])**2.0\
+                              /errup_fit_log_arr[up_err_for_chisq]**2.0)
 
-        chisq = (chisq_up+chisq_lo)/float(nfit)
+            lo_err_for_chisq = flux_model_ext_conv<flux_fit_log_arr
+            chisq_lo = np.sum((flux_model_ext_conv[lo_err_for_chisq]-flux_fit_log_arr[lo_err_for_chisq])**2.0\
+                              /errlo_fit_log_arr[lo_err_for_chisq]**2.0)
 
-        nfit_nonlimit = len(errup_fit_log_arr[errup_fit_log_arr<1.0e30]) #updating the number of points considered to be upper limits
-        chisq_nonlimit = chisq*float(nfit)/float(nfit_nonlimit)
+            chisq = (chisq_up+chisq_lo)/float(nfit)
+
+            nfit_nonlimit = len(errup_fit_log_arr[errup_fit_log_arr<1.0e30]) #updating the number of points considered to be upper limits
+            chisq_nonlimit = chisq*float(nfit)/float(nfit_nonlimit)
 
         else:
             #preparing the fluxes and errors in linear space
@@ -2023,7 +2029,7 @@ class SedFitter(object):
             linear_err = copy.deepcopy(self.err_flux_array)
             errup_fit_lin_arr=linear_err# this is absolute error in linear space
             errlo_fit_lin_arr=linear_err# this is absolute error in linear space
-            
+
             nfit = len(self.upper_limit_array) #total number of points
             errup_fit_lin_arr[self.upper_limit_array] = 1.0e33 #set upper limit errors to very high value
             errlo_fit_lin_arr[self.upper_limit_array] = 1.0e33 #set lower limit errors to very high value
@@ -2031,9 +2037,9 @@ class SedFitter(object):
             #these two lines are to avoid singularities in the case of error=0
             errup_fit_lin_arr[errup_fit_lin_arr==0.0]=1.0e-33
             errlo_fit_lin_arr[errlo_fit_lin_arr==0.0]=1.0e-33
-            
+
             flux_model_ext_conv = self.sed_extinction(flux_model,av) #extincted and then convoluted
-            
+
             up_err_for_chisq = flux_model_ext_conv>=flux_fit_arr
             errup_fit_lin_arr[up_err_for_chisq] = self.err_flux_array[up_err_for_chisq]
             chisq_up = np.sum((flux_model_ext_conv[up_err_for_chisq]-flux_fit_arr[up_err_for_chisq])**2.0\
@@ -2057,9 +2063,9 @@ class SedFitter(object):
         Note the slight change in sysntax from chisq() function above.
         In short it is exactly the same, but the parameters are called in a different order.
         '''
-        
+
         treat_errors = self.treat_errors
-        
+
         if treat_errors=='log':
             #preparing the fluxes and errors in log space
             flux_fit_log_arr=np.log10(self.flux_array,dtype=np.float64)
@@ -2101,7 +2107,7 @@ class SedFitter(object):
             linear_err = copy.deepcopy(self.err_flux_array)
             errup_fit_lin_arr=linear_err# this is absolute error in linear space
             errlo_fit_lin_arr=linear_err# this is absolute error in linear space
-            
+
             nfit = len(self.upper_limit_array) #total number of points
             errup_fit_lin_arr[self.upper_limit_array] = 1.0e33 #set upper limit errors to very high value
             errlo_fit_lin_arr[self.upper_limit_array] = 1.0e33 #set lower limit errors to very high value
@@ -2111,7 +2117,7 @@ class SedFitter(object):
             errlo_fit_lin_arr[errlo_fit_lin_arr==0.0]=1.0e-33
 
             flux_model_ext_conv = self.sed_extinction(flux_model,av) #extincted and then convoluted
-            
+
             up_err_for_chisq = flux_model_ext_conv>=flux_fit_arr
             errup_fit_lin_arr[up_err_for_chisq] = self.err_flux_array[up_err_for_chisq]
             chisq_up = np.sum((flux_model_ext_conv[up_err_for_chisq]-flux_fit_arr[up_err_for_chisq])**2.0\
@@ -2128,7 +2134,7 @@ class SedFitter(object):
 
         return(chisq)
 
-    
+
     def sed_fit(self,dist,AV_min=0.0,AV_max=1000,method='minimize',treat_errors='log',avopt=0):
         #TODO: write proper function description.
         '''
@@ -2169,13 +2175,13 @@ class SedFitter(object):
 
         if method not in ('grid_search', 'idl', 'minimize'):
             raise ValueError("'method' must be either 'minimize', 'grid_search' or 'idl'")
-                    
+
         if treat_errors not in ('log', 'linear'):
             raise ValueError("'treat_errors' must be either 'log' or 'linear'")
-        
+
         self.dist = dist
         self.treat_errors = treat_errors
-            
+
         #Creating the AV array, simply from AV_min to AV_max in steps of 1
         if AV_min<0:
             raise ValueError("AV_min must be greater or equal than 0.0")
@@ -2224,7 +2230,7 @@ class SedFitter(object):
         if treat_errors=='log':
             #preparing the fluxes and errors in log space
             flux_fit_log_arr=np.log10(self.flux_array,dtype=np.float64)
-            
+
             percentage_error = self.err_flux_array/self.flux_array
             errup_fit_log_arr=np.log10(1.+percentage_error,dtype=np.float64)# this is absolute error in log space
             errlo_fit_log_arr=-np.log10(1.-percentage_error,dtype=np.float64)# note 100% error means a infinite lower error in log
@@ -2238,7 +2244,7 @@ class SedFitter(object):
 
             errup_fit_log_arr[self.upper_limit_array] = 1.0e33 #set upper limit errors to very high value
             errlo_fit_log_arr[self.upper_limit_array] = 1.0e33 #set lower limit errors to very high value
-            
+
         else:
             #NOTE: We keep the same names as above even though they are linear now
             #preparing the fluxes and errors in linear space
@@ -2246,7 +2252,7 @@ class SedFitter(object):
             linear_err = copy.deepcopy(self.err_flux_array) #referencing different arrays in memory
             errup_fit_lin_arr=linear_err# this is absolute error in linear space
             errlo_fit_lin_arr=linear_err# this is absolute error in linear space
-            
+
             #these two lines are to avoid singularities in the case of error=0
             errup_fit_lin_arr[errup_fit_lin_arr==0.0]=1.0e-33
             errlo_fit_lin_arr[errlo_fit_lin_arr==0.0]=1.0e-33
@@ -2265,14 +2271,14 @@ class SedFitter(object):
                 fnorm=1.0/(4.0*np.pi)/self.dist**2/pc2cm/pc2cm*Lsun2erg_s
                 modelflux_arr1=sed_flux_model*fnorm # now in erg/s/cm^2. It was in Lsun
                 flux_model_Jy=modelflux_arr1/c_micron_s*self.sed_lambda_model/Jy2erg_s_cm2# now in Jy
-                
+
                 if treat_errors=='log':
                     flux_model_Jy_log=np.log10(flux_model_Jy,dtype=np.float64)
 
                     #TEMPORARY FIX TO AVOID CURVE FIT TO DIE
                     flux_model_Jy_log[flux_model_Jy_log==np.inf]=1.0e33
                     flux_model_Jy_log[flux_model_Jy_log==-np.inf]=1.0e-33
-                    
+
                     #fitting the best av for each model (8640)
                     result = minimize(self.chisq_to_minimize,x0=np.array([AV_max/2.0]),args=(flux_model_Jy_log),
                                       bounds=Bounds(AV_min,AV_max))
@@ -2280,7 +2286,7 @@ class SedFitter(object):
                     chisq,chisq_nonlimit = self.chisq(flux_model_Jy_log,result.x[0])
 
                     FULL_MODEL.append(model_idx+[result.x[0],chisq,chisq_nonlimit])
-                    
+
                 else:
                     #fitting the best av for each model (8640)
                     result = minimize(self.chisq_to_minimize,x0=np.array([AV_max/2.0]),args=(flux_model_Jy),
@@ -2299,14 +2305,14 @@ class SedFitter(object):
                 fnorm=1.0/(4.0*np.pi)/self.dist**2/pc2cm/pc2cm*Lsun2erg_s
                 modelflux_arr1=sed_flux_model*fnorm # now in erg/s/cm^2. It was in Lsun
                 flux_model_Jy=modelflux_arr1/c_micron_s*self.sed_lambda_model/Jy2erg_s_cm2# now in Jy
-                
+
                 if treat_errors=='log':
                     flux_model_Jy_log=np.log10(flux_model_Jy,dtype=np.float64)
 
                     #TEMPORARY FIX TO AVOID CURVE FIT TO DIE
                     flux_model_Jy_log[flux_model_Jy_log==np.inf]=1.0e33
                     flux_model_Jy_log[flux_model_Jy_log==-np.inf]=1.0e-33
-                
+
                     for av in AV_array:
                         #extincting the model flux using the av value from AV_array
                         #and the normalised (in Vband) extc_law
@@ -2334,7 +2340,7 @@ class SedFitter(object):
 
 
                         FULL_MODEL.append(model_idx+[av,chisq,chisq_nonlimit])
-                    
+
                 else:
                     for av in AV_array:
                         #extincting the model flux using the av value from AV_array
@@ -2363,7 +2369,7 @@ class SedFitter(object):
 
 
                         FULL_MODEL.append(model_idx+[av,chisq,chisq_nonlimit])
-                    
+
         elif method == 'idl':
             #load the opacities and interpolate in the range of model wavelength
             par_test = np.loadtxt(master_dir+'/Model_SEDs/parfiles/kmh.par',unpack=True)
@@ -2428,7 +2434,7 @@ class SedFitter(object):
 
                                     interp_kkap = np.interp(lambda_model, klam, kkap)#in the whole vector
                                     interp_kV = np.interp(0.55, klam, kkap)#in the visible
-                                    
+
                                     modelflux_fit_log=np.log10(flux_model_Jy,dtype=np.float64)
 
                                     for av in av_arr:
@@ -2437,7 +2443,7 @@ class SedFitter(object):
                                         #preliminar consideration of low and up errors
                                         up_err_for_chisq = log_flux_model_Jy_extincted>=flux_fit_log_arr_gt0
                                         #here considers some upper limits not to be upper limit
-                                        
+
                                         percentage_error_up = err_flux_array_gt0[up_err_for_chisq]/flux_fit_log_arr_gt0[up_err_for_chisq]
                                         errup_fit_log_arr_gt0[up_err_for_chisq] = np.log10(1.0+percentage_error_up,dtype=np.float64)
                                         chisq_up = np.sum((log_flux_model_Jy_extincted[up_err_for_chisq]-flux_fit_log_arr_gt0[up_err_for_chisq])**2.0\
@@ -2446,7 +2452,7 @@ class SedFitter(object):
                                         lo_err_for_chisq = log_flux_model_Jy_extincted<flux_fit_log_arr_gt0
                                         chisq_lo = np.sum((log_flux_model_Jy_extincted[lo_err_for_chisq]-flux_fit_log_arr_gt0[lo_err_for_chisq])**2.0\
                                                           /errlo_fit_log_arr_gt0[lo_err_for_chisq]**2.0)
-                                        
+
                                         nfit = len(lambda_model)
                                         chisq = (chisq_up+chisq_lo)/float(nfit)
 
@@ -2468,12 +2474,12 @@ class SedFitter(object):
 
                                     interp_kkap = np.interp(lambda_model, klam, kkap)#in the whole vector
                                     interp_kV = np.interp(0.55, klam, kkap)#in the visible
-                                    
+
                                     modelflux_fit_log=flux_model_Jy
 
                                     for av in av_arr:
                                         flux_model_Jy_extincted = flux_model_Jy*10**(-0.4*av*interp_kkap/interp_kV)
-                                        
+
                                         #preliminar consideration of low and up errors
                                         up_err_for_chisq = flux_model_Jy_extincted>=flux_fit_arr_gt0
                                         #here considers some upper limits not to be upper limit
@@ -2656,7 +2662,7 @@ class SedFitter(object):
         #Note that this is not needed for the new method as it convolves on the fly
 
         existing_FITS_filters = os.listdir(master_dir+'/Model_SEDs/flux_filt/')
-        
+
         if filter_name+'.fits' in existing_FITS_filters:
             print('WARNING! The filter file ' + filter_name + '.fits already exists in the database')
         else:
@@ -2724,9 +2730,9 @@ class SedFitter(object):
             print('The filter', filter_name,'has been removed from the database')
         else:
             print('WARNING! The input filter is not in the database')
-        
-        
-            
+
+
+
     def plot_filter(self,filter_name,figsize=(6,4),legend=False,title=None,figname=None):
         '''
         Plots a filter in the database. To see the available filter use SedFitter().print_default_filters
@@ -3659,7 +3665,7 @@ class ModelPlotter(FitterContainer):
                         np.max(models['chisq'])])
         cbar.set_ticklabels([np.around(np.min(models['chisq']),
                                        decimals=1),5, 10,50,np.around(np.max(models['chisq']),decimals=1)])
-        
+
         #plot the best 5 models
         sct = ax.scatter(np.log10(models['mcore'])[0:5],
                          np.log10(models['mstar'])[0:5],
