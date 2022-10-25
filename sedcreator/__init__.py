@@ -85,6 +85,7 @@ from astropy.constants import c, m_e, m_n, m_p
 
 from photutils import aperture_photometry
 from photutils import CircularAperture, CircularAnnulus
+<<<<<<< HEAD
 from reproject import reproject_interp, reproject_exact
 
 from astropy.nddata.utils import Cutout2D
@@ -94,6 +95,8 @@ from matplotlib.ticker import FuncFormatter
 
 from photutils.aperture import aperture_photometry
 from photutils.aperture import CircularAperture, CircularAnnulus
+=======
+>>>>>>> 2bbafec6796a6518680c74b78529cb0aa54082a6
 
 #constants for SedFitter
 pc2cm = u.pc.to(u.cm)
@@ -195,7 +198,7 @@ class FluxerContainer():
         elif 'MIDOBS' in header: #work around to print date in WISE data
             print('Observing date:',header['MIDOBS'])
         else:
-            print('Regarding observing time:\nYou are probably using HERSCHEL, look at the first extension of the header')
+            print('Observing date:\nNo information found in this header')
         #to print the wavelength
         if 'WAVELEN' in header:
             print('Wavelength:',header['WAVELEN'])
@@ -217,7 +220,7 @@ class FluxerContainer():
             if header['CHNLNUM']==4:
                 print('Wavelength:',8.0)
         else:
-            print('Regarding wavelength:\nYou are probably using HERSCHEL or ALMA, look at the first extension of the header')
+            print('Wavelength:\nNo information found in this header')
 
         if flux_method=='get_flux':
             print('############################')
@@ -1803,7 +1806,10 @@ class SedFitter(object):
 
             filter_idx = []
             for filter_value in filter_array:
-                filter_idx.append(np.where(filter_name==filter_value)[0][0])
+                try:
+                    filter_idx.append(np.where(filter_name==filter_value)[0][0])
+                except:
+                    raise ValueError("The filter", filter_value, "is not in dabatase, please add it")
 
             lambda_array_filters = filter_wavelength[filter_idx] #this is use for the convolution
             filter_array_model = filter_name[filter_idx]
@@ -2031,8 +2037,8 @@ class SedFitter(object):
             errlo_fit_lin_arr=linear_err# this is absolute error in linear space
 
             nfit = len(self.upper_limit_array) #total number of points
-            errup_fit_lin_arr[self.upper_limit_array] = 1.0e33 #set upper limit errors to very high value
-            errlo_fit_lin_arr[self.upper_limit_array] = 1.0e33 #set lower limit errors to very high value
+            errup_fit_lin_arr[self.upper_limit_array] = self.flux_array[self.upper_limit_array] #set upper limit errors to flux value
+            errlo_fit_lin_arr[self.upper_limit_array] = self.flux_array[self.upper_limit_array] #set lower limit errors to flux value
 
             #these two lines are to avoid singularities in the case of error=0
             errup_fit_lin_arr[errup_fit_lin_arr==0.0]=1.0e-33
@@ -2109,8 +2115,8 @@ class SedFitter(object):
             errlo_fit_lin_arr=linear_err# this is absolute error in linear space
 
             nfit = len(self.upper_limit_array) #total number of points
-            errup_fit_lin_arr[self.upper_limit_array] = 1.0e33 #set upper limit errors to very high value
-            errlo_fit_lin_arr[self.upper_limit_array] = 1.0e33 #set lower limit errors to very high value
+            errup_fit_lin_arr[self.upper_limit_array] = self.flux_array[self.upper_limit_array] #set upper limit errors to flux value
+            errlo_fit_lin_arr[self.upper_limit_array] = self.flux_array[self.upper_limit_array] #set lower limit errors to flux value
 
             #these two lines are to avoid singularities in the case of error=0
             errup_fit_lin_arr[errup_fit_lin_arr==0.0]=1.0e-33
@@ -2133,9 +2139,14 @@ class SedFitter(object):
             chisq_nonlimit = chisq*float(nfit)/float(nfit_nonlimit)
 
         return(chisq)
+<<<<<<< HEAD
 
 
     def sed_fit(self,dist,AV_min=0.0,AV_max=1000,method='minimize',treat_errors='log',avopt=0):
+=======
+    
+    def sed_fit(self,dist,AV_min=0.0,AV_max=1000,method='minimize',progress=True,treat_errors='linear',avopt=0):
+>>>>>>> 2bbafec6796a6518680c74b78529cb0aa54082a6
         #TODO: write proper function description.
         '''
         Fits the SED observations to the Z&T18 set of models
@@ -2162,6 +2173,12 @@ class SedFitter(object):
             'idl' is a translation of the IDL version that also performs a grid search,
             it keeps the compatibility with the previous version using the same constants and fits files.
 
+<<<<<<< HEAD
+=======
+        progress: bool
+            progress bar either True or False.
+
+>>>>>>> 2bbafec6796a6518680c74b78529cb0aa54082a6
         avopt: int
             This is only relevant when choosing method = 'idl'. It sets the visual extunction option.
             0 is equally distributed AV point in the range of (0,AV_max)
@@ -2256,14 +2273,14 @@ class SedFitter(object):
             #these two lines are to avoid singularities in the case of error=0
             errup_fit_lin_arr[errup_fit_lin_arr==0.0]=1.0e-33
             errlo_fit_lin_arr[errlo_fit_lin_arr==0.0]=1.0e-33
-            errup_fit_lin_arr[self.upper_limit_array] = 1.0e33 #set upper limit errors to very high value
-            errlo_fit_lin_arr[self.upper_limit_array] = 1.0e33 #set lower limit errors to very high value
+            errup_fit_lin_arr[self.upper_limit_array] = self.flux_array[self.upper_limit_array] #set upper limit errors to flux value
+            errlo_fit_lin_arr[self.upper_limit_array] = self.flux_array[self.upper_limit_array] #set lower limit errors to flux value
 
 
         nfit = len(self.upper_limit_array) #total number of points
 
         if method == 'minimize':
-            for model_data,model_idx in tqdm(zip(MODEL_DATA,MODEL_IDX),total=len(MODEL_DATA)):
+            for model_data,model_idx in tqdm(zip(MODEL_DATA,MODEL_IDX),total=len(MODEL_DATA),disable= not progress):
                 sed_model = np.loadtxt(master_dir+'/Model_SEDs/sed/'+model_data,unpack=True)
                 self.sed_lambda_model = sed_model[0] #micron
                 sed_flux_model = sed_model[1]
@@ -2297,7 +2314,7 @@ class SedFitter(object):
                     FULL_MODEL.append(model_idx+[result.x[0],chisq,chisq_nonlimit])
 
         elif method == 'grid_search':
-            for model_data,model_idx in tqdm(zip(MODEL_DATA,MODEL_IDX),total=len(MODEL_DATA)):
+            for model_data,model_idx in tqdm(zip(MODEL_DATA,MODEL_IDX),total=len(MODEL_DATA),disable= not progress):
                 sed_model = np.loadtxt(master_dir+'/Model_SEDs/sed/'+model_data,unpack=True)
                 self.sed_lambda_model = sed_model[0] #micron
                 sed_flux_model = sed_model[1]
@@ -2399,7 +2416,7 @@ class SedFitter(object):
             mH=1.6733e-24
             clight=2.9979e14
 
-            for mc in tqdm(range(nmc)):
+            for mc in tqdm(range(nmc),disable= not progress):
                 for sigma in range(nsigma):
                     if avopt:
                         av_clump = sigma/1.6733e-24/1.8e21/2.0
@@ -2604,8 +2621,13 @@ class SedFitter(object):
 
             pyfits.writeto(master_dir+'Model_SEDs/flux_filt/'+filter_name+'.fits',flux_model_conv)
 
+<<<<<<< HEAD
 
     def add_SQUARE_filter(self,filter_name,instrument,filter_lambda,filter_width):
+=======
+    
+    def add_square_filter(self,filter_name,instrument,filter_lambda,filter_width):
+>>>>>>> 2bbafec6796a6518680c74b78529cb0aa54082a6
         '''
         Adds square filter to the database given the central filter_lambda and the filter_width.
         It adds a txt file to the database with columns lambda_array and response_array.
@@ -2660,9 +2682,14 @@ class SedFitter(object):
         #For the IDL method we need the convolved fluxes for the new filter in a fits file
         #(this is a translation from the IDL script filtflux.pro)
         #Note that this is not needed for the new method as it convolves on the fly
+<<<<<<< HEAD
 
         existing_FITS_filters = os.listdir(master_dir+'/Model_SEDs/flux_filt/')
 
+=======
+        existing_FITS_filters = os.listdir(master_dir+'/Model_SEDs/flux_filt/')
+        
+>>>>>>> 2bbafec6796a6518680c74b78529cb0aa54082a6
         if filter_name+'.fits' in existing_FITS_filters:
             print('WARNING! The filter file ' + filter_name + '.fits already exists in the database')
         else:
@@ -2726,7 +2753,7 @@ class SedFitter(object):
             filters_table.remove_row(np.argwhere(filters_table['filter']==filter_name)[0][0])
             os.remove(master_dir+'/Model_SEDs/parfiles/'+filter_name+'.txt')
             os.remove(master_dir+'/Model_SEDs/flux_filt/'+filter_name+'.fits')
-            ascii.write(filters_table,'/opt/anaconda3/lib/python3.7/site-packages/sedcreator/Model_SEDs/parfiles/filter_default.dat', overwrite=True)
+            ascii.write(filters_table,master_dir+'/Model_SEDs/parfiles/filter_default.dat', overwrite=True)
             print('The filter', filter_name,'has been removed from the database')
         else:
             print('WARNING! The input filter is not in the database')
