@@ -805,11 +805,6 @@ class SedFluxer:
         ap_phot['aper_sum_bkgsub'] = ap_phot['aperture_sum'] - ap_phot['aper_bkg'] #subtracting the background
         #--> END of the aperture photometry block
 
-# <<<<<<< HEAD
-#         flux_bkgsub = ap_phot['aper_sum_bkgsub'].data[0]
-#         flux = ap_phot['aperture_sum'].data[0]
-
-# =======
         #Estimating the error via background fluctuations in the annular background
         #with patches with equal area to that of the aperture.
         angles = np.arange(0.0,360.0,30.0)
