@@ -85,7 +85,6 @@ from astropy.constants import c, m_e, m_n, m_p
 
 from photutils import aperture_photometry
 from photutils import CircularAperture, CircularAnnulus
-<<<<<<< HEAD
 from reproject import reproject_interp, reproject_exact
 
 from astropy.nddata.utils import Cutout2D
@@ -95,8 +94,6 @@ from matplotlib.ticker import FuncFormatter
 
 from photutils.aperture import aperture_photometry
 from photutils.aperture import CircularAperture, CircularAnnulus
-=======
->>>>>>> 2bbafec6796a6518680c74b78529cb0aa54082a6
 
 #constants for SedFitter
 pc2cm = u.pc.to(u.cm)
@@ -2139,14 +2136,9 @@ class SedFitter(object):
             chisq_nonlimit = chisq*float(nfit)/float(nfit_nonlimit)
 
         return(chisq)
-<<<<<<< HEAD
 
-
-    def sed_fit(self,dist,AV_min=0.0,AV_max=1000,method='minimize',treat_errors='log',avopt=0):
-=======
     
     def sed_fit(self,dist,AV_min=0.0,AV_max=1000,method='minimize',progress=True,treat_errors='linear',avopt=0):
->>>>>>> 2bbafec6796a6518680c74b78529cb0aa54082a6
         #TODO: write proper function description.
         '''
         Fits the SED observations to the Z&T18 set of models
@@ -2173,12 +2165,9 @@ class SedFitter(object):
             'idl' is a translation of the IDL version that also performs a grid search,
             it keeps the compatibility with the previous version using the same constants and fits files.
 
-<<<<<<< HEAD
-=======
         progress: bool
             progress bar either True or False.
 
->>>>>>> 2bbafec6796a6518680c74b78529cb0aa54082a6
         avopt: int
             This is only relevant when choosing method = 'idl'. It sets the visual extunction option.
             0 is equally distributed AV point in the range of (0,AV_max)
@@ -2621,13 +2610,8 @@ class SedFitter(object):
 
             pyfits.writeto(master_dir+'Model_SEDs/flux_filt/'+filter_name+'.fits',flux_model_conv)
 
-<<<<<<< HEAD
 
-    def add_SQUARE_filter(self,filter_name,instrument,filter_lambda,filter_width):
-=======
-    
     def add_square_filter(self,filter_name,instrument,filter_lambda,filter_width):
->>>>>>> 2bbafec6796a6518680c74b78529cb0aa54082a6
         '''
         Adds square filter to the database given the central filter_lambda and the filter_width.
         It adds a txt file to the database with columns lambda_array and response_array.
@@ -2682,14 +2666,9 @@ class SedFitter(object):
         #For the IDL method we need the convolved fluxes for the new filter in a fits file
         #(this is a translation from the IDL script filtflux.pro)
         #Note that this is not needed for the new method as it convolves on the fly
-<<<<<<< HEAD
 
-        existing_FITS_filters = os.listdir(master_dir+'/Model_SEDs/flux_filt/')
-
-=======
         existing_FITS_filters = os.listdir(master_dir+'/Model_SEDs/flux_filt/')
         
->>>>>>> 2bbafec6796a6518680c74b78529cb0aa54082a6
         if filter_name+'.fits' in existing_FITS_filters:
             print('WARNING! The filter file ' + filter_name + '.fits already exists in the database')
         else:
