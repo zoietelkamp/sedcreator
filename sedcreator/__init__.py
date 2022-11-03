@@ -527,23 +527,33 @@ class SedFluxer:
 
             bkg_aper = CircularAperture(bkg_pos, r=aper_rad_pixel/2.0)
             bkg_aper_areas = bkg_aper.area_overlap(data=data,mask=mask)
+            bkg_aper_total_area = bkg_aper.area
+            ap_total_frac = np.sum(bkg_aper_areas)/np.sum(bkg_aper_total_area)
+            
+            if ap_total_frac < 0.5:
+                break
+                
+            else:
+                bkg_phot = aperture_photometry(data, bkg_aper,mask=mask)
 
-            bkg_phot = aperture_photometry(data, bkg_aper,mask=mask)
+                #getting correcting factor when part of the fluctuation areas are masked
+                #here we assumed that area=nan is 0 and that the flux obtained in the masked
+                #areas is directly proportional to the total flux
+                area_corr_set1 = np.nansum(bkg_aper_areas[0:4])/aperture_area
+                area_corr_set2 = np.nansum(bkg_aper_areas[4:8])/aperture_area
+                area_corr_set3 = np.nansum(bkg_aper_areas[8:12])/aperture_area
 
-            #getting correcting factor when part of the fluctuation areas are masked
-            #here we assumed that area=nan is 0 and that the flux obtained in the masked
-            #areas is directly proportional to the total flux
-            area_corr_set1 = np.nansum(bkg_aper_areas[0:4])/aperture_area
-            area_corr_set2 = np.nansum(bkg_aper_areas[4:8])/aperture_area
-            area_corr_set3 = np.nansum(bkg_aper_areas[8:12])/aperture_area
+                aper_set1 = bkg_phot['aperture_sum'][0:4].sum()/area_corr_set1
+                aper_set2 = bkg_phot['aperture_sum'][4:8].sum()/area_corr_set2
+                aper_set3 = bkg_phot['aperture_sum'][8:12].sum()/area_corr_set3
 
-            aper_set1 = bkg_phot['aperture_sum'][0:4].sum()/area_corr_set1
-            aper_set2 = bkg_phot['aperture_sum'][4:8].sum()/area_corr_set2
-            aper_set3 = bkg_phot['aperture_sum'][8:12].sum()/area_corr_set3
-
-            std = np.nanstd([aper_set1,aper_set2,aper_set3])#ignoring nans
-            STD.append(std)
-        STD_mean = np.mean(STD)
+                std = np.nanstd([aper_set1,aper_set2,aper_set3])#ignoring nans
+                STD.append(std)
+       
+        if ap_total_frac < 0.5:
+            STD_mean = ap_phot['aper_bkg']
+        else:
+            STD_mean = np.mean(STD)
 
         #This block is to deal with WISE DN units
         #The first if else is to deal with both WISE images the one downloaded from Skyview and from WISE archive
@@ -820,23 +830,33 @@ class SedFluxer:
 
             bkg_aper = CircularAperture(bkg_pos, r=aper_rad_pixel/2.0)
             bkg_aper_areas = bkg_aper.area_overlap(data=data,mask=mask)
+            bkg_aper_total_area = bkg_aper.area
+            ap_total_frac = np.sum(bkg_aper_areas)/np.sum(bkg_aper_total_area)
+            
+            if ap_total_frac < 0.5:
+                break
+                
+            else:
+                bkg_phot = aperture_photometry(data, bkg_aper,mask=mask)
 
-            bkg_phot = aperture_photometry(data, bkg_aper,mask=mask)
+                #getting correcting factor when part of the fluctuation areas are masked
+                #here we assumed that area=nan is 0 and that the flux obtained in the masked
+                #areas is directly proportional to the total flux
+                area_corr_set1 = np.nansum(bkg_aper_areas[0:4])/aperture_area
+                area_corr_set2 = np.nansum(bkg_aper_areas[4:8])/aperture_area
+                area_corr_set3 = np.nansum(bkg_aper_areas[8:12])/aperture_area
 
-            #getting correcting factor when part of the fluctuation areas are masked
-            #here we assumed that area=nan is 0 and that the flux obtained in the masked
-            #areas is directly proportional to the total flux
-            area_corr_set1 = np.nansum(bkg_aper_areas[0:4])/aperture_area
-            area_corr_set2 = np.nansum(bkg_aper_areas[4:8])/aperture_area
-            area_corr_set3 = np.nansum(bkg_aper_areas[8:12])/aperture_area
+                aper_set1 = bkg_phot['aperture_sum'][0:4].sum()/area_corr_set1
+                aper_set2 = bkg_phot['aperture_sum'][4:8].sum()/area_corr_set2
+                aper_set3 = bkg_phot['aperture_sum'][8:12].sum()/area_corr_set3
 
-            aper_set1 = bkg_phot['aperture_sum'][0:4].sum()/area_corr_set1
-            aper_set2 = bkg_phot['aperture_sum'][4:8].sum()/area_corr_set2
-            aper_set3 = bkg_phot['aperture_sum'][8:12].sum()/area_corr_set3
-
-            std = np.nanstd([aper_set1,aper_set2,aper_set3])#ignoring nans
-            STD.append(std)
-        STD_mean = np.mean(STD)
+                std = np.nanstd([aper_set1,aper_set2,aper_set3])#ignoring nans
+                STD.append(std)
+       
+        if ap_total_frac < 0.5:
+            STD_mean = ap_phot['aper_bkg']
+        else:
+            STD_mean = np.mean(STD)
 
         flux_bkgsub = ap_phot['aper_sum_bkgsub'].data[0]
         flux = ap_phot['aperture_sum'].data[0]
@@ -978,13 +998,13 @@ class SedFluxer:
                 flux_bkg, flux, error_flux, background = self.get_flux(central_coords=central_coords,
                                                                        aper_rad=radius,
                                                                        inner_annu=1.0*radius,
-                                                                       outer_annu=2.0*radius).value
+                                                                       outer_annu=2.0*radius, mask=mask).value
                 unit = 1 # to consider Jy in label
             except:
                 flux_bkg, flux, error_flux, background = self.get_raw_flux(central_coords=central_coords,
                                                                            aper_rad=radius,
                                                                            inner_annu=1.0*radius,
-                                                                           outer_annu=2.0*radius).value
+                                                                           outer_annu=2.0*radius, mask=mask).value
                 unit = 0 # to not consider Jy in label
 
             FLUX_BKG.append(flux_bkg)
