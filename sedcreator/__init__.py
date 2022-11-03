@@ -528,11 +528,11 @@ class SedFluxer:
             bkg_aper = CircularAperture(bkg_pos, r=aper_rad_pixel/2.0)
             bkg_aper_areas = bkg_aper.area_overlap(data=data,mask=mask)
             bkg_aper_total_area = bkg_aper.area
-            ap_total_frac = np.sum(bkg_aper_areas)/np.sum(bkg_aper_total_area)
-            
+            ap_total_frac = np.nansum(bkg_aper_areas)/(bkg_aper_total_area*len(bkg_pos))
+
             if ap_total_frac < 0.5:
                 break
-                
+
             else:
                 bkg_phot = aperture_photometry(data, bkg_aper,mask=mask)
 
@@ -549,12 +549,12 @@ class SedFluxer:
 
                 std = np.nanstd([aper_set1,aper_set2,aper_set3])#ignoring nans
                 STD.append(std)
-       
-        if ap_total_frac < 0.5:
-            STD_mean = ap_phot['aper_bkg']
-        else:
-            STD_mean = np.mean(STD)
 
+        if ap_total_frac < 0.5:
+            fluc_error = ap_phot['aper_bkg'].data[0]
+        else:
+            fluc_error = np.mean(STD)
+            
         #This block is to deal with WISE DN units
         #The first if else is to deal with both WISE images the one downloaded from Skyview and from WISE archive
         if ('TELESCOP' in header) & ('BAND' in header):
@@ -579,7 +579,7 @@ class SedFluxer:
                 #magnitude transformation for WISE depending on the above constants (band dependent)
                 Mcal_bkg = M_0_inst-2.5*np.log10(ap_phot['aper_sum_bkgsub'])-AC
                 Mcal = M_0_inst-2.5*np.log10(ap_phot['aperture_sum'])-AC
-                Mcal_error = M_0_inst-2.5*np.log10(STD_mean)-AC
+                Mcal_error = M_0_inst-2.5*np.log10(fluc_error)-AC
 
                 #flux conversion for WISE
                 flux_bkgsub = F_nu_0*10.0**(-Mcal_bkg.data[0]/2.5) #Jy
@@ -598,11 +598,11 @@ class SedFluxer:
                             unit_factor_Jy = 1.0 #leave it in Jy
                         flux_bkgsub = unit_factor_Jy*ap_phot['aper_sum_bkgsub'].data[0] #Jy
                         flux = unit_factor_Jy*ap_phot['aperture_sum'].data[0] #Jy
-                        error_flux = unit_factor_Jy*STD_mean #Jy
+                        error_flux = unit_factor_Jy*fluc_error #Jy
                     elif 'Jy'==header['BUNIT']:
                         flux_bkgsub = ap_phot['aper_sum_bkgsub'].data[0] #Jy
                         flux = ap_phot['aperture_sum'].data[0] #Jy
-                        error_flux = STD_mean #Jy
+                        error_flux = fluc_error #Jy
                     else:
                         raise Exception('BUNIT (',header['BUNIT'],') found in the header but units not yet supported, use get_raw_flux() function and perform own units transformation')
                 elif 'FUNITS' in header:
@@ -613,7 +613,7 @@ class SedFluxer:
                             unit_factor_Jy = 1.0 #leave it in Jy
                         flux_bkgsub = unit_factor_Jy*ap_phot['aper_sum_bkgsub'].data[0] #Jy
                         flux = unit_factor_Jy*ap_phot['aperture_sum'].data[0] #Jy
-                        error_flux = unit_factor_Jy*STD_mean #Jy
+                        error_flux = unit_factor_Jy*fluc_error #Jy
                 else:
                     raise Exception('Neither BUNIT nor FUNITS found in the header, use get_raw_flux() function and perform own units transformation')
 
@@ -646,7 +646,7 @@ class SedFluxer:
                 #magnitude transformation for WISE depending on the above constants (band dependent)
                 Mcal_bkg = M_0_inst-2.5*np.log10(ap_phot['aper_sum_bkgsub'])-AC
                 Mcal = M_0_inst-2.5*np.log10(ap_phot['aperture_sum'])-AC
-                Mcal_error = M_0_inst-2.5*np.log10(STD_mean)-AC
+                Mcal_error = M_0_inst-2.5*np.log10(fluc_error)-AC
 
                 #flux conversion for WISE
                 flux_bkgsub = F_nu_0*10.0**(-Mcal_bkg.data[0]/2.5) #Jy
@@ -664,11 +664,11 @@ class SedFluxer:
                     if 'CD1_1' in header:
                         flux_bkgsub = ap_phot['aper_sum_bkgsub'].data[0]*304.6*(np.absolute(header['CD1_1']))**2 #Jy
                         flux = ap_phot['aperture_sum'].data[0]*304.6*(np.absolute(header['CD1_1']))**2 #Jy
-                        error_flux = STD_mean*304.6*(np.absolute(header['CD1_1']))**2 #Jy
+                        error_flux = fluc_error*304.6*(np.absolute(header['CD1_1']))**2 #Jy
                     elif 'CDELT1' in header:
                         flux_bkgsub = ap_phot['aper_sum_bkgsub'].data[0]*304.6*(np.absolute(header['CDELT1']))**2 #Jy
                         flux = ap_phot['aperture_sum'].data[0]*304.6*(np.absolute(header['CDELT1']))**2 #Jy
-                        error_flux = STD_mean*304.6*(np.absolute(header['CDELT1']))**2 #Jy
+                        error_flux = fluc_error*304.6*(np.absolute(header['CDELT1']))**2 #Jy
                     else:
                         raise Exception('Neither CD1_1 nor CDELT1 were found in the header')
                 elif 'Jy/beam' in header['BUNIT']:#mainly for ALMA data or some other radio data
@@ -680,11 +680,11 @@ class SedFluxer:
                     if 'CD1_1' in header:
                         flux_bkgsub = unit_factor_Jy*ap_phot['aper_sum_bkgsub'].data[0]/(beam/(np.absolute(header['CD1_1']))**2) #Jy
                         flux = unit_factor_Jy*ap_phot['aperture_sum'].data[0]/(beam/(np.absolute(header['CD1_1']))**2) #Jy
-                        error_flux = unit_factor_Jy*STD_mean/(beam/(np.absolute(header['CD1_1']))**2) #Jy
+                        error_flux = unit_factor_Jy*fluc_error/(beam/(np.absolute(header['CD1_1']))**2) #Jy
                     elif 'CDELT1' in header:
                         flux_bkgsub = unit_factor_Jy*ap_phot['aper_sum_bkgsub'].data[0]/(beam/(np.absolute(header['CDELT1']))**2) #Jy
                         flux = unit_factor_Jy*ap_phot['aperture_sum'].data[0]/(beam/(np.absolute(header['CDELT1']))**2) #Jy
-                        error_flux = unit_factor_Jy*STD_mean/(beam/(np.absolute(header['CDELT1']))**2) #Jy
+                        error_flux = unit_factor_Jy*fluc_error/(beam/(np.absolute(header['CDELT1']))**2) #Jy
                     else:
                         raise Exception('Neither CD1_1 nor CDELT1 were found in the header')
                 elif 'Jy/pix' in header['BUNIT']:
@@ -694,11 +694,11 @@ class SedFluxer:
                         unit_factor_Jy = 1.0 #leave it in Jy
                     flux_bkgsub = unit_factor_Jy*ap_phot['aper_sum_bkgsub'].data[0] #Jy
                     flux = unit_factor_Jy*ap_phot['aperture_sum'].data[0] #Jy
-                    error_flux = unit_factor_Jy*STD_mean #Jy
+                    error_flux = unit_factor_Jy*fluc_error #Jy
                 elif 'Jy'==header['BUNIT']:
                     flux_bkgsub = ap_phot['aper_sum_bkgsub'].data[0] #Jy
                     flux = ap_phot['aperture_sum'].data[0] #Jy
-                    error_flux = STD_mean #Jy
+                    error_flux = fluc_error #Jy
                 else:
                     raise Exception('BUNIT (',header['BUNIT'],') found in the header but units not yet supported, use get_raw_flux() function and perform own units transformation')
 
@@ -710,11 +710,11 @@ class SedFluxer:
                         unit_factor_Jy = 1.0 #leave it in Jy
                     flux_bkgsub = unit_factor_Jy*ap_phot['aper_sum_bkgsub'].data[0] #Jy
                     flux = unit_factor_Jy*ap_phot['aperture_sum'].data[0] #Jy
-                    error_flux = unit_factor_Jy*STD_mean #Jy
+                    error_flux = unit_factor_Jy*fluc_error #Jy
                 elif 'Jy'==header['FUNITS']:#This is mainly for SOFIA data that does not have BUNIT, it is FUNIT
                     flux_bkgsub = ap_phot['aper_sum_bkgsub'].data[0] #Jy
                     flux = ap_phot['aperture_sum'].data[0] #Jy
-                    error_flux = STD_mean #Jy
+                    error_flux = fluc_error #Jy
                 elif 'Jy/sq-arc' in header['FUNITS']:#This is mainly for SOFIA data
                     if 'mJy/sq-arc' in header['FUNITS']:
                         unit_factor_Jy = 0.001 #from mJy to Jy
@@ -722,7 +722,7 @@ class SedFluxer:
                         unit_factor_Jy = 1.0 #leave it in Jy
                     flux_bkgsub = unit_factor_Jy*ap_phot['aper_sum_bkgsub'].data[0]*pixel_scale**2 #Jy
                     flux = unit_factor_Jy*ap_phot['aperture_sum'].data[0]*pixel_scale**2 #Jy
-                    error_flux = unit_factor_Jy*STD_mean*pixel_scale**2 #Jy
+                    error_flux = unit_factor_Jy*fluc_error*pixel_scale**2 #Jy
                 else:
                     raise Exception('FUNITS (',header['FUNITS'],') found in the header but units not yet supported, use get_raw_flux() function and perform own units transformation')
             else:
@@ -831,11 +831,11 @@ class SedFluxer:
             bkg_aper = CircularAperture(bkg_pos, r=aper_rad_pixel/2.0)
             bkg_aper_areas = bkg_aper.area_overlap(data=data,mask=mask)
             bkg_aper_total_area = bkg_aper.area
-            ap_total_frac = np.sum(bkg_aper_areas)/np.sum(bkg_aper_total_area)
-            
+            ap_total_frac = np.nansum(bkg_aper_areas)/(bkg_aper_total_area*len(bkg_pos))
+
             if ap_total_frac < 0.5:
                 break
-                
+
             else:
                 bkg_phot = aperture_photometry(data, bkg_aper,mask=mask)
 
@@ -852,15 +852,15 @@ class SedFluxer:
 
                 std = np.nanstd([aper_set1,aper_set2,aper_set3])#ignoring nans
                 STD.append(std)
-       
+
         if ap_total_frac < 0.5:
-            STD_mean = ap_phot['aper_bkg']
+            fluc_error = ap_phot['aper_bkg'].data[0]
         else:
-            STD_mean = np.mean(STD)
+            fluc_error = np.mean(STD)
 
         flux_bkgsub = ap_phot['aper_sum_bkgsub'].data[0]
         flux = ap_phot['aperture_sum'].data[0]
-        error_flux = STD_mean
+        error_flux = fluc_error
 
         return FluxerContainer(data=self.data,flux_bkgsub=flux_bkgsub,flux=flux,error_flux=error_flux,
                  central_coords=central_coords,aper_rad=aper_rad,inner_annu=inner_annu,outer_annu=outer_annu,
